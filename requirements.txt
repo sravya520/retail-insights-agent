@@ -1,0 +1,13 @@
+langchain-google-genai>=2.0
+langchain-core>=0.3
+langgraph>=0.2
+tenacity>=8.2
+python-dotenv>=1.0
+pydantic>=2.0
+pypdf>=4.0
+reportlab>=4.0
+sentence-transformers>=3.0
+chromadb>=0.5
+rank_bm25>=0.2.2
+numpy
+pytest>=8.0
