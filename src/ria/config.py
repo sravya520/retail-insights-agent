@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[2]
 load_dotenv(ROOT / ".env")
 
 # --- LLM (Google Gemini via langchain-google-genai) ---
-GEMINI_MODEL = "gemini-2.5-flash"
+GEMINI_MODEL = "gemini-3.8-flash"
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 LLM_TEMPERATURE = 0.0
 LLM_MAX_ATTEMPTS = 5  # Tenacity: retry on 429 and 5xx only

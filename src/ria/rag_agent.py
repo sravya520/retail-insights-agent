@@ -19,8 +19,9 @@ Rules:
 1. Every factual sentence must end with one or more citations copied exactly from the passage headers, for example [Returns and Refunds §4.2, p.2].
 2. Cite only passages that support the sentence. Never invent a citation.
 3. If a question depends on whether the customer is retail or wholesale and this is not stated, give the rule for each.
-4. If the passages do not contain the answer, reply with exactly: {NOT_COVERED}
-5. Be short and clear. Use plain language. Do not add a sources list at the end."""
+4. You may use common knowledge only to map a place to a region named in the passages (for example, Spain is in the EU, France is in the EU, Japan is rest of world). All rules, numbers and conditions must come from the passages.
+5. If the passages do not contain the answer, reply with exactly: {NOT_COVERED}
+6. Be short and clear. Use plain language. Do not add a sources list at the end."""
 
 
 @dataclass(frozen=True)

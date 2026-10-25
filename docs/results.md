@@ -14,17 +14,15 @@ What was built:
 
 What did not work or is not done:
 
-- **Example answers are not generated yet.** There is no `GOOGLE_API_KEY` in `.env` on this machine, so the RAG agent has not been run against Gemini. The agent is tested only with a mocked LLM. Run `python evals/rag_examples.py` after adding the key. It fills the "Example answers" section below.
+- **Example answers were generated in a second run, after two fixes.** The first run (reranker on, original prompt) said "The policy documents do not cover this" for the Spain shipping question. Cause: the reranker pushed Shipping §3.2 out of the top 5, and the model did not link Spain to "EU". Fixes: the examples now use plain hybrid search (the best method in the eval), and the prompt lets the model map a country to a region named in the policy. The first run is not kept. I did not fix the model changing its answer on a rerun, so the examples show one run only.
+- The configured model `gemini-2.5-flash` returned a 404 (no longer available). The model is now `gemini-3.8-flash`, set in `src/ria/config.py`. This model thinks by default, and single calls took from about 5 to 40 seconds in my runs, so latency is a cost to watch in Phase 5.
+- The personalised mug example is correct but wordy. It adds a wholesale case that the question did not ask for, because the prompt tells the model to give both rules when the customer type is not stated.
 - Question p10 ("My item stopped working after 3 months...") is missed by every method. The gold clause is Warranty 5.2.
 - The reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) did not improve recall and lowered MRR@5 from 0.850 to 0.771 on this set. With only 20 questions, one question moving one rank changes MRR by a visible amount, so treat small differences as noise.
 - The gold labels were written by hand before the run. They were not tuned after seeing results.
 - Setup note: `pip` and the Hugging Face download failed with `CERTIFICATE_VERIFY_FAILED` because the antivirus on this machine inspects HTTPS. A CA bundle with the antivirus certificate fixed it. This is a local setup issue, not a code issue.
 
 MRR@5 means the reciprocal rank of the first gold clause within the top 5, and 0 if it is not there. A question can list more than one acceptable gold clause.
-
-### Example answers
-
-Not run yet. See the note above.
 
 <!-- BEGIN phase1_retrieval -->
 ### Retrieval comparison (20 policy questions)
@@ -45,3 +43,43 @@ Questions with no gold clause in the top 5:
 - Hybrid (RRF k=60): p10
 - Hybrid + reranker: p10
 <!-- END phase1_retrieval -->
+
+<!-- BEGIN phase1_examples -->
+### Example answers
+
+Command: `python evals/rag_examples.py`
+
+**Q:** Can a wholesale customer return a damaged item after 40 days?
+
+**A:** Wholesale customers must report damaged goods within 48 hours of delivery [Returns and Refunds §7.4, p.2]. Claims made after 48 hours may be refused [Returns and Refunds §7.4, p.2].
+
+Citations matched to retrieved chunks: 1. Not matched: 0.
+
+---
+
+**Q:** I bought a personalised mug on 5 December. Can I return it in January because I changed my mind?
+
+**A:** No, you cannot return the personalised mug because you changed your mind [Returns and Refunds §3.1, p.1]. Items that are engraved, printed or made to order cannot be returned for change of mind [Returns and Refunds §3.1, p.1]. 
+
+Whether your purchase was retail or wholesale, personalised items cannot be returned for change of mind [Returns and Refunds §3.1, p.1]:
+* For retail orders, items delivered between 1 November and 24 December may normally be returned until 31 January of the following year, but this does not apply to personalised items returned for change of mind [Returns and Refunds §2.3, p.1] [Returns and Refunds §3.1, p.1].
+* For wholesale orders, change of mind returns must be made within 14 days of delivery, but personalised items are likewise excluded from change of mind returns [Returns and Refunds §3.1, p.1] [Wholesale and B2B Terms §6.1, p.2].
+
+Citations matched to retrieved chunks: 3. Not matched: 0.
+
+---
+
+**Q:** How much does it cost to ship a £150 order to Spain, and who pays customs charges?
+
+**A:** Standard delivery to Spain (which is in the EU) is free because the order is over £120 [Shipping and Delivery §3.1, p.1]. The customer is responsible for any import duties, taxes, or customs fees [Shipping and Delivery §3.2, p.1].
+
+Citations matched to retrieved chunks: 2. Not matched: 0.
+
+---
+
+**Q:** Do you offer a price match against other shops?
+
+**A:** The policy documents do not cover this.
+
+Citations matched to retrieved chunks: 0. Not matched: 0.
+<!-- END phase1_examples -->

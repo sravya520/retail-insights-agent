@@ -26,7 +26,7 @@ def main() -> None:
     retriever = Retriever()
     blocks = []
     for q in QUESTIONS:
-        res = answer_policy_question(q, retriever=retriever, rerank=True)
+        res = answer_policy_question(q, retriever=retriever, rerank=False)
         print(f"Q: {q}\nA: {res.answer}\nvalid={len(res.citations)} invalid={len(res.invalid_citations)}\n")
         blocks.append(
             f"**Q:** {q}\n\n**A:** {res.answer}\n\n"
