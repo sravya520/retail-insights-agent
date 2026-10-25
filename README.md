@@ -260,3 +260,5 @@ python scripts/sync_readme.py          # copy result tables into this README
 Download the dataset from https://archive.ics.uci.edu/dataset/502/online+retail+ii into `data/raw/online_retail_ii/` first. See the dataset page for its license and citation.
 
 Project layout: `src/ria/` (the code), `app/streamlit_app.py` (UI), `evals/` (questions, eval scripts, runs), `docs/results.md` (every measured number and its command), `docs/DEPLOY.md` (deployment steps), `tests/` (offline tests), `.github/workflows/nightly-eval.yml` (nightly gates, also runnable by hand from the Actions tab).
+
+Commit hashes cited in the docs are from before an author-only history rewrite. See [docs/COMMIT_MAP.md](docs/COMMIT_MAP.md) for the matching new hashes.
