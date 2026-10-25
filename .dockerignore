@@ -1,0 +1,16 @@
+.venv
+.git
+.github
+__pycache__
+*.pyc
+.pytest_cache
+data/raw
+data/db
+data/chroma
+data/cache
+data/state
+logs
+evals/runs
+tests
+docs
+*.egg-info

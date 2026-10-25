@@ -99,6 +99,54 @@ def clean_lines(raw: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, dict[str
     return sales, returns, report
 
 
+def create_views(con: duckdb.DuckDBPyConnection) -> None:
+    """The two views built on top of the sales table. Shared by build_db and the parquet rebuild."""
+    con.execute("""CREATE VIEW products AS
+        SELECT stock_code, mode(description) AS description, bool_or(is_merchandise) AS is_merchandise,
+               avg(unit_price) AS avg_unit_price FROM sales GROUP BY stock_code""")
+    con.execute("""CREATE VIEW customers AS
+        SELECT customer_id, mode(country) AS country, min(invoice_date) AS first_order_date,
+               max(invoice_date) AS last_order_date, count(DISTINCT invoice_no) AS order_count,
+               sum(revenue) AS total_revenue FROM sales WHERE customer_id IS NOT NULL GROUP BY customer_id""")
+
+
+def export_parquet(db_path: Path = DB_PATH, out_dir: Path | None = None) -> dict[str, int]:
+    """Write the sales and returns tables to compressed parquet files (committed, so a host can rebuild the database)."""
+    out_dir = out_dir or config.DEPLOY_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    con = duckdb.connect(str(db_path), read_only=True)
+    sizes = {}
+    for table in ("sales", "returns"):
+        target = out_dir / f"{table}.parquet"
+        con.execute(f"COPY (SELECT * FROM {table} ORDER BY invoice_date, invoice_no) TO '{target.as_posix()}' (FORMAT PARQUET, COMPRESSION ZSTD)")
+        sizes[table] = target.stat().st_size
+    con.close()
+    return sizes
+
+
+def ensure_db(db_path: Path = DB_PATH, parquet_dir: Path | None = None) -> Path:
+    """Make sure the DuckDB file exists. If not, rebuild it from the committed parquet files (takes a few seconds)."""
+    if db_path.exists():
+        return db_path
+    parquet_dir = parquet_dir or config.DEPLOY_DIR
+    files = {table: parquet_dir / f"{table}.parquet" for table in ("sales", "returns")}
+    missing = [str(f) for f in files.values() if not f.exists()]
+    if missing:
+        raise FileNotFoundError(f"No database at {db_path} and no parquet files to rebuild it from (missing {missing}). "
+                                "Run: python -I -m ria.sql_db   then   python scripts/export_deploy_data.py")
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = db_path.with_suffix(".building")
+    if tmp.exists():
+        tmp.unlink()
+    con = duckdb.connect(str(tmp))
+    for table, path in files.items():
+        con.execute(f"CREATE TABLE {table} AS SELECT * FROM read_parquet('{path.as_posix()}')")
+    create_views(con)
+    con.close()
+    tmp.replace(db_path)
+    return db_path
+
+
 def build_db(xlsx_path: Path = XLSX_PATH, db_path: Path = DB_PATH) -> dict[str, Any]:
     sheets = pd.read_excel(xlsx_path, sheet_name=None, engine="openpyxl")
     raw = pd.concat(sheets.values(), ignore_index=True)
@@ -115,13 +163,7 @@ def build_db(xlsx_path: Path = XLSX_PATH, db_path: Path = DB_PATH) -> dict[str, 
     con.register("returns_df", returns)
     con.execute(f"CREATE TABLE sales AS SELECT {cols} FROM sales_df")
     con.execute(f"CREATE TABLE returns AS SELECT {cols} FROM returns_df")
-    con.execute("""CREATE VIEW products AS
-        SELECT stock_code, mode(description) AS description, bool_or(is_merchandise) AS is_merchandise,
-               avg(unit_price) AS avg_unit_price FROM sales GROUP BY stock_code""")
-    con.execute("""CREATE VIEW customers AS
-        SELECT customer_id, mode(country) AS country, min(invoice_date) AS first_order_date,
-               max(invoice_date) AS last_order_date, count(DISTINCT invoice_no) AS order_count,
-               sum(revenue) AS total_revenue FROM sales WHERE customer_id IS NOT NULL GROUP BY customer_id""")
+    create_views(con)
     report["date_min"] = str(con.execute("SELECT min(invoice_date) FROM sales").fetchone()[0])
     report["date_max"] = str(con.execute("SELECT max(invoice_date) FROM sales").fetchone()[0])
     report["total_revenue_gbp"] = round(con.execute("SELECT sum(revenue) FROM sales").fetchone()[0], 2)

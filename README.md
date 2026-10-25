@@ -1,118 +1,261 @@
 # Retail Insights Agent
 
-A business user asks questions in plain English about a retail company. A LangGraph multi-agent system answers them. Data questions go to a SQL agent. Policy questions go to a RAG agent that cites its sources. A verifier checks every answer before it is shown.
+A business user asks questions in plain English about a retail company. A LangGraph multi-agent system answers them. Data questions go to a SQL agent that writes safe, read-only SQL. Policy questions go to a RAG agent that answers with citations. A verifier written in plain code checks every number and every citation before an answer is shown.
 
-Design principle: the LLM decides and explains. Code does the maths and checks the facts.
+Design principle: **the LLM decides and explains. Code does the maths and checks the facts.**
 
-> **Status: Phase 4 of 6 done (documents, RAG, SQL agent, LangGraph workflow with memory and a verifier, evaluation harness).** Judge calibration waits for hand labels. Token economics, the API and the UI come in later phases.
+This is a portfolio project. It was built to show retrieval, text-to-SQL, agent orchestration, evaluation and observability end to end, with honest numbers.
 
-## Important: the policy documents are synthetic
+**Live demo:** not deployed yet. The exact steps are in [docs/DEPLOY.md](docs/DEPLOY.md). Until then you can run it locally (below).
 
-Northwind Gifts is a fictional company. The six policy documents in `data/docs/` were written for this demo. They are not real company policies. The rules are made up so that they are specific and testable.
+> **The policy documents are synthetic.** Northwind Gifts is a fictional company. The six policy documents in `data/docs/` were written for this demo, so the rules are specific and testable. They are not real company policies. The sales data is the real UCI "Online Retail II" dataset (a UK online gift retailer, December 2009 to December 2011).
 
-The documents are:
+## What it does
 
-1. Returns and Refunds
-2. Warranty and Product Quality
-3. Shipping and Delivery
-4. Wholesale and B2B Terms
-5. Loyalty Programme
-6. Customer Data and Privacy
+| Question type | Example | What happens |
+|---|---|---|
+| Data | "What were the top 5 products by revenue in November 2011?" | The SQL agent writes a read-only query. Code validates it and runs it. The agent explains the rows. |
+| Policy | "Can a wholesale customer return a damaged item after 40 days?" | Hybrid search finds policy clauses. The RAG agent answers only from them, with citations like `[Returns and Refunds §7.4, p.2]`. |
+| Both | "How many orders were returned in December 2010, and how long do retail customers have to return an item?" | The router splits the question. Both agents answer. A combiner joins the answers. |
+| Out of scope | "What is the weather in London tomorrow?" | A polite refusal. No agent runs. |
 
-Each one is written in Markdown (`data/docs/*.md`) and rendered to PDF with `reportlab`. Ingestion reads the PDFs, so page numbers in citations are real PDF pages.
+Follow-up questions work within a conversation ("And in December?"), because the router rewrites each question to stand alone using the chat history.
 
-## Setup
+## Architecture
+
+```mermaid
+flowchart TD
+    U[User] --> UI[Streamlit chat UI]
+    U --> API[FastAPI: POST /ask]
+    UI --> LIM
+    API --> LIM[Usage limiter<br/>per session and per day]
+    LIM --> R
+
+    subgraph G[LangGraph workflow with memory per thread_id]
+        R[router<br/>structured output: route, standalone question, sub-questions]
+        R -->|data| S[sql_agent]
+        R -->|policy| P[rag_agent]
+        R -->|both| S
+        S -->|both| P
+        S --> C[combiner]
+        P --> C
+        C --> V[verifier<br/>code only]
+        R -->|out_of_scope| F[refuse]
+    end
+
+    S --> GS{{sqlglot guardrails<br/>one SELECT, known tables and columns,<br/>LIMIT 200, 5 s timeout, read-only}}
+    GS --> DB[(DuckDB<br/>Online Retail II)]
+    P --> H[Hybrid retrieval<br/>BM25 + bge-small vectors, RRF]
+    H --> CH[(Chroma + chunk index<br/>6 synthetic policy PDFs)]
+
+    R -.-> LLM[Gemini Flash-Lite]
+    S -.-> LLM
+    P -.-> LLM
+    C -.-> LLM
+
+    V --> OUT[Answer + route + trajectory + SQL + citations<br/>+ verified flag + tokens + cost + latency]
+    F --> OUT
+    G -.-> LOG[(logs: llm_calls.jsonl, traces.jsonl, sql_repairs.jsonl)]
+```
+
+How the pieces fit:
+
+- **Router** returns a Pydantic object: the route, a standalone version of the question, and one sub-question per agent for mixed questions.
+- **SQL agent** is guarded in code, not in the prompt. `sqlglot` allows one `SELECT` over known tables and columns only, blocks file and system functions, rejects made-up numeric constants in the top-level select list, adds `LIMIT 200`, and the query runs read-only with a 5 second timeout. A failed query is given back to the model once for a repair, and the reason is logged.
+- **RAG agent** retrieves 5 clauses (BM25 plus vector search, fused with reciprocal rank fusion) and may answer only from them.
+- **Verifier** removes any sentence whose number is not in the SQL rows, the cited clause or the question, or whose citation does not match a retrieved clause. What it removes is logged.
+- **Tracing** logs every model call (tokens, cost, latency, cache hit) and every request (route, trajectory, verified flag, totals). Langfuse is used only if its keys are set.
+
+## Run it locally
+
+You need Python 3.11 and a free Gemini API key from Google AI Studio.
 
 ```bash
 python -m venv .venv
-.venv/Scripts/activate        # Windows. On Linux or macOS: source .venv/bin/activate
+.venv/Scripts/activate            # Windows. On Linux or macOS: source .venv/bin/activate
 pip install -r requirements.txt
-pip install -e . --no-build-isolation
-cp .env.example .env          # then add your GOOGLE_API_KEY
+pip install -e .
+cp .env.example .env              # then put your key in GOOGLE_API_KEY
 ```
 
-Behind an antivirus that inspects HTTPS (for example AVG), `pip` and the Hugging Face download can fail with `CERTIFICATE_VERIFY_FAILED`. Point `PIP_CERT`, `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` at a CA bundle that includes your antivirus certificate.
-
-## Phase 1: run it
+The sales database and the vector index are rebuilt automatically on first start from files in the repository (`data/deploy/*.parquet` and `data/docs/*.pdf`). The first start downloads the small embedding model (about 130 MB).
 
 ```bash
-python -m ria.make_policy_pdfs      # Markdown -> PDF
-python -m ria.ingest_docs           # PDF -> chunks -> embeddings -> Chroma
-python evals/retrieval_eval.py      # recall@5 and MRR for four retrieval methods
-python evals/rag_examples.py        # example answers with citations (needs GOOGLE_API_KEY)
-pytest
+streamlit run app/streamlit_app.py          # chat UI (runs the agent inside the Streamlit process)
+uvicorn ria.api:app --port 8000             # REST API: POST /ask, GET /health, GET /limits, GET /examples
+pytest                                      # offline tests, no API calls
 ```
 
-Results and the commands that produced them are in [docs/results.md](docs/results.md).
-
-## How the RAG part works
-
-- Chunking is by numbered clause (for example 4.2). Each chunk keeps `doc`, `section`, `clause_id` and `page`.
-- Embeddings: `BAAI/bge-small-en-v1.5`, stored in a persistent Chroma collection.
-- Hybrid search: BM25 plus vector search, fused with Reciprocal Rank Fusion (k=60). An optional cross-encoder reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) can be switched on.
-- The RAG agent answers only from the top 5 chunks. Every factual sentence ends with a citation like `[Returns and Refunds §4.2, p.2]`. If the chunks do not hold the answer, it says "The policy documents do not cover this."
-
-## Phase 2: sales database and SQL agent
+Docker (FastAPI on 8000 and Streamlit on 8501 in one container). I wrote this Dockerfile but could not build it on my machine because Docker Desktop was not running, so it is **untested**:
 
 ```bash
-python -I -m ria.sql_db             # load the UCI Online Retail II dataset into data/db/sales.duckdb
-python evals/build_sql_gold.py      # run the gold SQL and store the gold answers
-python evals/sql_eval.py            # execution accuracy of the SQL agent on 15 questions
-python evals/call_latency.py        # per-call latency and tokens from logs/llm_calls.jsonl
+docker build -t retail-insights-agent .
+docker run --rm -p 8501:8501 -p 8000:8000 -e GOOGLE_API_KEY=your-key retail-insights-agent
 ```
 
-The dataset is downloaded by hand from https://archive.ics.uci.edu/dataset/502/online+retail+ii into `data/raw/online_retail_ii/`. It is git-ignored.
-
-The LLM writes the SQL. Code decides whether it may run: `sqlglot` allows one SELECT only, over known tables and columns only, with LIMIT 200, a 5 second timeout and a read-only connection. If the query fails, the error goes back to the LLM once for a repair.
-
-## Model and free tier limits
-
-The model name is set in one place, `src/ria/config.py` (`GEMINI_MODEL`). The free Gemini tier has per-minute and per-day request limits that differ by model. The code waits between calls to stay under 15 requests per minute. If you hit a daily limit, the call fails with a clear message. Thinking level per role is set in `THINKING_LEVELS`. See `docs/results.md` for what was measured.
-
-## Dev and held-out questions
-
-Questions used to build or tune the system are marked `dev`. See `evals/DEV_SPLIT.md`. The final eval will report held-out questions separately.
-
-## Phase 3: LangGraph workflow
+API example:
 
 ```bash
-python evals/graph_examples.py      # one run per route, a two-turn memory example, a verifier fault test
+curl -X POST http://localhost:8000/ask -H "Content-Type: application/json" \
+  -d '{"question": "How many orders were returned in December 2010?", "thread_id": "demo-1"}'
 ```
 
-```text
-router -> sql_agent -> combiner -> verifier                (data)
-router -> rag_agent -> combiner -> verifier                (policy)
-router -> sql_agent -> rag_agent -> combiner -> verifier   (both)
-router -> refuse                                           (out of scope)
-```
+The answer has: `answer`, `route`, `trajectory`, `sql` (with columns and rows), `citations` (with the cited passages), `verified`, `removed`, `tokens`, `cost_usd`, `latency_s`. Errors are clear: 422 for a bad question, 429 when a usage limit is reached, 503 when the model's free daily quota is used up.
 
-The router returns a Pydantic object with the route, a standalone version of the question (so follow-ups like "And in December?" work) and, for mixed questions, one sub-question per agent. State is kept per `thread_id` with LangGraph `MemorySaver`. The verifier is plain code: it removes sentences with a citation that matches no retrieved chunk or a number that is not supported by the SQL rows, the cited chunk or the question. Each request writes its trajectory and verifier result to `logs/traces.jsonl`.
+### Protecting the free quota on a public demo
 
-## Development cache
+A public demo on a free Gemini key can be drained by a few visitors. So live questions are limited: 5 per visitor and 60 per day for the whole demo by default (`RIA_SESSION_LIMIT`, `RIA_DAILY_LIMIT`). Days follow US Pacific time, because that is when the Gemini free quota resets. If Gemini itself reports its daily quota is used up, live questions pause until the reset. When a limit is reached the user sees a clear message. The UI also has **20 pre-computed examples** from real runs of this system (see below) that open with no quota use.
 
-Set `RIA_LLM_CACHE=0` (or `LLM_CACHE_ENABLED = False` in `src/ria/config.py`) to switch off the local LLM response cache. It is on by default for tests and examples and must be off for final evals and latency measurements. Cache hits are logged with `cache_hit: true` in `logs/llm_calls.jsonl`. Cached files are in `data/cache/` (git-ignored).
+## Results
 
-## Phase 4: evaluation
+Every number below is copied from [docs/results.md](docs/results.md) by `scripts/sync_readme.py`. Each was produced by a script I ran. The model for every answering component is `gemini-3.5-flash-lite`. Details, commands and caveats for each number are in `docs/results.md`.
+
+### Eval v1 (frozen, git tag `eval-v1`)
+
+20 held-out questions (written before any run and never used for tuning) and 37 dev questions (used while building, so optimistic). **Held-out is the headline.** Eval v1 is frozen: the code refuses to overwrite its results.
+
+**Gates** (must pass):
+
+<!-- BEGIN sync:eval_v1_gates -->
+| Gate | Result | Detail |
+|---|---|---|
+| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 16/16, dev 36/36 |
+| All out of scope questions refused | PASS | heldout 4/4, dev 1/1 |
+| SQL guardrail blocks every unsafe query | PASS | 51/51 unsafe queries blocked (`evals/unsafe_sql.json`, no model involved) |
+<!-- END sync:eval_v1_gates -->
+
+**Observations:**
+
+<!-- BEGIN sync:eval_v1_obs -->
+| Metric | Held-out | Dev |
+|---|---|---|
+| Router accuracy (route matches expected) | 20/20 = 100% (95% CI low 84%) | 35/37 = 95% |
+| Trajectory accuracy (exact node sequence) | 20/20 = 100% (95% CI low 84%) | 35/37 = 95% |
+| SQL execution accuracy (data and both questions, 0.5% tolerance) | 10/10 = 100% (95% CI low 72%) | 15/16 = 94% |
+| Retrieval recall@5 (policy and both questions, end to end) | 10/10 = 100% (95% CI low 72%) | 20/21 = 95% |
+| Refusal rate on out of scope questions | 4/4 = 100% (95% CI low 51%) | 1/1 = 100% |
+| Judge faithfulness, mean 1 to 5 | 4.94 (n=16) | 4.92 (n=36) |
+| Judge answer relevance, mean 1 to 5 | 5.00 (n=16) | 5.00 (n=36) |
+| Judge says faithful (faithfulness 4 or 5) | 100% | 100% |
+| Answers the verifier changed | 0/16 | 0/36 |
+| Sentences removed (number / citation) | 0 / 0 | 0 / 0 |
+| Median wall time per question (s, includes pacing gaps) | 10.4 | 11.2 |
+<!-- END sync:eval_v1_obs -->
+
+How to read this honestly:
+
+- A perfect score on 20 questions is consistent with a true rate of about 85%. The lower bounds in the table show this.
+- The verifier changed 0 of 52 real answers, so gate 1 shows the final answers are stable under the verifier's rules. It does not show that the verifier catches the model's mistakes. That is shown only by unit tests and a fault-injection test.
+- The judge was a different model for 15 of the 16 held-out answers and the answering model itself for everything else (the free daily quota of the other judge models ran out). Its relevance score of 5.00 on every answer is not credible.
+- Judge calibration against human labels is **pending**: it needs the 20 hand labels in `evals/human_labels.jsonl`.
+
+### Eval v2 (pending)
+
+A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed in `da8dea5` before any run, after the router and prompt fixes were made using dev questions only. **It has not been run yet**, because the free daily quota ran out. The dev re-run after the fixes is also unfinished. So the effect of the fixes is **unmeasured**. The commands to finish are at the end of `docs/results.md`. Eval v1 stays untouched.
+
+### Token economics
+
+Per route, on the 20 held-out questions, at paid-tier list prices (the free tier bills nothing). The prices were checked against the raw official Gemini pricing page on 2026-10-25. Thinking tokens are billed as output.
+
+<!-- BEGIN sync:tokens_route -->
+| Route | Requests | LLM calls per query | Avg input tokens | Avg output tokens | Avg total tokens | Cost per query | Cost per 1,000 queries |
+|---|---|---|---|---|---|---|---|
+| data | 6 | 3.0 | 1421 | 160 | 1581 | $0.000827 | $0.827 |
+| policy | 6 | 2.0 | 898 | 645 | 1543 | $0.001881 | $1.881 |
+| both | 4 | 5.0 | 2117 | 1432 | 3548 | $0.004214 | $4.214 |
+| out_of_scope | 4 | 1.0 | 365 | 66 | 431 | $0.000275 | $0.275 |
+| **all (this mix)** | 20 | 2.7 | 1192 | 541 | 1733 | $0.001710 | $1.710 |
+<!-- END sync:tokens_route -->
+
+Share of tokens spent on the schema and on retrieved context:
+
+<!-- BEGIN sync:tokens_share -->
+| Part of the prompt | Tokens | Share of input tokens | Share of all tokens (input + output) |
+|---|---|---|---|
+| Schema description (sent in every SQL write call) | 5800 | 24.3% | 16.7% |
+| Few-shot SQL examples | 2070 | 8.7% | 6.0% |
+| Other SQL instructions and rules | 890 | 3.7% | 2.6% |
+| Retrieved policy context (5 passages in every RAG call) | 2664 | 11.2% | 7.7% |
+<!-- END sync:tokens_share -->
+
+Output tokens (mostly thinking) are about 79% of the cost, so the biggest lever is thinking effort, not the prompt.
+
+### The caching finding
+
+I restructured the prompts so the long, stable part (instructions, schema, few-shot examples) comes first and the question last, then compared with a question-first layout on the same 20 questions, cache off.
+
+<!-- BEGIN sync:caching_main -->
+| Layout | Queries | LLM calls | Input tokens | Cached input tokens | Cost per query | Cost per 1,000 queries | Median call latency (s) | Median model time per query (s) |
+|---|---|---|---|---|---|---|---|---|
+| question_first (before) | 20 | 54 | 23882 | 0 (0.0%) | $0.001795 | $1.795 | 1.38 | 4.00 |
+| stable_first (after) | 20 | 54 | 23839 | 0 (0.0%) | $0.001710 | $1.710 | 1.26 | 3.47 |
+<!-- END sync:caching_main -->
+
+**Caching did not trigger.** Cached tokens were 0 in both layouts, and also when the identical 894-token SQL prompt was sent four times in a row:
+
+<!-- BEGIN sync:caching_probe -->
+| Call | Input tokens | Cached tokens | Latency (s) |
+|---|---|---|---|
+| 1 | 894 | 0 | 1.09 |
+| 2 | 894 | 0 | 0.78 |
+| 3 | 894 | 0 | 1.27 |
+| 4 | 894 | 0 | 1.21 |
+<!-- END sync:caching_probe -->
+
+The prompts are far below the minimum token counts the caching docs list, and Gemini explicit caching was refused:
+
+<!-- BEGIN sync:explicit_cache -->
+| Model | Prompt | Prompt tokens | Result |
+|---|---|---|---|
+| `gemini-3.5-flash-lite` | SQL system prompt | 876 | cache NOT created: ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Cached content is too small. total_token_count=879, min_total_token_count=1024', 'status': 'INVALID_ARGUMENT'}} |
+| `gemini-3.6-flash` | SQL system prompt | 876 | cache NOT created: ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Cached content is too small. total_token_count=879, min_total_token_count=1024', 'status': 'INVALID_ARGUMENT'}} |
+| `gemini-3.5-flash-lite` | padded prompt (synthetic: schema repeated once) | 1465 | cache NOT created: ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model gemini-3.5-flash-lite: limit=0, requested=1468', 'status': 'RESOURCE_EXHAUSTED'}} |
+<!-- END sync:explicit_cache -->
+
+The small cost and latency difference between the two layouts is not a caching effect. Input tokens were almost identical, and the difference is output-token and latency noise. Even perfect input caching could save at most about 19% of the cost, because input is only about a fifth of it. One more disclosure: the question-first baseline was applied to the router and SQL prompts only, because a patch of mine silently missed the RAG prompt. That does not change the conclusion.
+
+### Pre-computed examples in the demo
+
+`data/examples/examples_v1.json` holds the 20 eval-v1 held-out questions with the answer, route, trajectory, SQL, citations, verified flag, tokens, cost and latency recorded in a real run (`scripts/build_examples.py`, no hand edits). One of the 20 is a wrong answer (the model added a filter that excluded postage, so its number differs from the gold answer). It is kept and labelled as such in the UI.
+
+## Limits
+
+- **The policy documents are synthetic.** The system has never seen real company policies. The sales data covers 2009 to 2011 only.
+- **The eval sets are small.** 20 held-out questions and 37 dev questions. Route groups have 4 to 6 questions. Confidence intervals are wide. The dev numbers are optimistic. Dev both and out-of-scope sets have one question each.
+- **The model is not deterministic.** The model ignores temperature 0. The same SQL question gave the gold answer in two runs and a different answer in a third. Single-run accuracy has noise I have not measured.
+- **Self-judging.** Most dev answers were scored by the answering model. Judge scores are lenient and not yet calibrated against human labels.
+- **The verifier is narrow.** It checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words. It allows numbers that appear in the cited clause or in the question.
+- **Known weaknesses.** One policy question (p10) still misses its gold clause. Two dev policy questions were routed to the wrong path before the router fix, whose effect is unmeasured. The RAG prompt used to add "for a retail customer" to answers (judged unsupported); the fix is unmeasured.
+- **Free tier limits.** The answering model's free quota allowed about 440 calls in one day. Latency swings with API load. Live demo answers take roughly 10 to 25 seconds. Explicit context caching is not available on the free tier.
+- **Prices** in `config.PRICES` were checked on 2026-10-25 and will change. Two of the models listed double in price on 2027-01-01.
+- **Not tested here:** the Dockerfile, the GitHub Actions nightly job on GitHub itself, Langfuse against a live account, and the Streamlit Cloud deployment. See `docs/DEPLOY.md`.
+
+## What I would do next
+
+1. Run eval v2 and the dev re-run after the quota resets, and report v2 separately from v1.
+2. Fill in the 20 human labels and measure how well the judge agrees with a human.
+3. Cut cost where it is: lower the thinking effort of the RAG and combiner calls and measure the quality change.
+4. Fix the p10 retrieval miss (a better query rewrite or a reranker trained on this domain), judged by a held-out set.
+5. Run each eval several times and report the spread, to measure model nondeterminism.
+6. Add a human review step for answers the verifier changed, and track the share of changed answers in production.
+7. Use a paid key for the public demo, which also allows context caching.
+
+## Reproduce the results
 
 ```bash
-python evals/run_evals.py                  # full eval: 20 held-out + 37 dev questions, judge, gates (cache off)
-python evals/run_evals.py --report <id>    # rebuild the report from saved records (no API calls)
-python evals/make_human_labels.py <id>     # write the 20-answer template evals/human_labels.jsonl
-python evals/judge_agreement.py            # after you fill in the labels
+python -m ria.make_policy_pdfs         # Markdown -> PDF (the PDFs are also committed)
+python -m ria.ingest_docs              # PDFs -> chunks -> embeddings -> Chroma
+python -I -m ria.sql_db                # load the UCI dataset into DuckDB (download it first, see below)
+python scripts/export_deploy_data.py   # parquet copies used to rebuild the database on a host
+python evals/retrieval_eval.py         # retrieval comparison (no model calls)
+python evals/sql_eval.py               # SQL execution accuracy, 15 dev questions
+python evals/run_evals.py              # full eval v1 (cache off). New runs use --label, eval_v1 is frozen
+python evals/caching_experiment.py     # caching experiment, 20 held-out questions
+python evals/token_report.py           # tokens and cost per route
+python scripts/build_examples.py       # pre-computed examples for the demo (no model calls)
+python scripts/sync_readme.py          # copy result tables into this README
 ```
 
-Gates (must pass): no unsupported number or citation in a final answer, every out of scope question refused, and the SQL guardrail blocks every unsafe query. Everything else is an observation. Held-out questions (never used for tuning, committed before the first run) are the headline. Dev numbers are optimistic. The results, the limits and the judge details are in [docs/results.md](docs/results.md).
+Download the dataset from https://archive.ics.uci.edu/dataset/502/online+retail+ii into `data/raw/online_retail_ii/` first. See the dataset page for its license and citation.
 
-## Phase 5: observability and token economics
-
-```bash
-python evals/caching_experiment.py     # before and after prompt layout on 20 held-out questions, cache off
-python evals/explicit_cache_trial.py   # try Gemini explicit context caching on the SQL prompt
-python evals/token_report.py           # tokens and cost per route, cost per 1,000 queries, schema and context share
-```
-
-Logs (git-ignored): `logs/llm_calls.jsonl` (every LLM call with tokens, latency and cost), `logs/traces.jsonl` (every request with totals), `logs/sql_repairs.jsonl` (why each SQL repair was needed). Prices are in `config.PRICES`. Langfuse is used only if `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Otherwise the local files are all there is. A GitHub Actions job (`.github/workflows/nightly-eval.yml`) runs the offline tests and a 10-question eval subset every night and fails if a gate fails (it needs the repository secret `GOOGLE_API_KEY`).
-
-## Eval versions
-
-Eval v1 (git tag `eval-v1`) is frozen. Eval v2 is a fresh held-out set (`evals/questions_v2.jsonl`, committed in `da8dea5` before any run). Status and the commands to finish it are at the end of [docs/results.md](docs/results.md). `run_evals.py` exits 0 when all questions finished and all gates passed, 1 when a gate failed, and 2 when the run stopped early (for example a daily quota).
+Project layout: `src/ria/` (the code), `app/streamlit_app.py` (UI), `evals/` (questions, eval scripts, runs), `docs/results.md` (every measured number and its command), `docs/DEPLOY.md` (deployment steps), `tests/` (offline tests), `.github/workflows/nightly-eval.yml` (nightly gates, also runnable by hand from the Actions tab).

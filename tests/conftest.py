@@ -1,3 +1,12 @@
+import os
+from pathlib import Path
+
+# Tests must not wait on the network. If the embedding model is already in the local Hugging Face cache, use it offline.
+# (Set before any Hugging Face import. On a machine without the cache, for example a fresh CI runner, this is skipped.)
+_HF_CACHE = Path(os.getenv("HF_HOME", Path.home() / ".cache" / "huggingface")) / "hub" / "models--BAAI--bge-small-en-v1.5"
+if _HF_CACHE.exists():
+    os.environ.setdefault("HF_HUB_OFFLINE", "1")
+
 import pytest
 
 
