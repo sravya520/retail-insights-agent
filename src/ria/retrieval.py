@@ -79,8 +79,9 @@ class Retriever:
         return [(i, 1.0 - d) for i, d in zip(res["ids"][0], res["distances"][0])]
 
     def search(self, query: str, mode: Mode = "hybrid", top_k: int = config.TOP_K,
-               rerank: bool = False) -> list[Hit]:
-        n = config.CANDIDATES
+               rerank: bool = False, rerank_pool: int = config.RERANK_POOL) -> list[Hit]:
+        """Search. With rerank=True the top `rerank_pool` candidates are rescored and the best `top_k` kept."""
+        n = max(config.CANDIDATES, rerank_pool) if rerank else config.CANDIDATES
         if mode == "bm25":
             ranked = self._bm25_ranking(query, n)
         elif mode == "vector":
@@ -90,6 +91,7 @@ class Retriever:
                               [i for i, _ in self._vector_ranking(query, n)]])
             ranked = fused[:n]
         if rerank:
+            ranked = ranked[:rerank_pool]
             pairs = [(query, self.by_id[i].embed_text) for i, _ in ranked]
             scores = self._reranker.predict(pairs)
             ranked = sorted(zip((i for i, _ in ranked), map(float, scores)), key=lambda kv: -kv[1])

@@ -161,3 +161,15 @@ def test_rag_agent_not_covered_has_no_citations():
     from ria.rag_agent import NOT_COVERED, answer_policy_question
     res = answer_policy_question("q?", retriever=_FakeRetriever([_hit()]), llm=_FakeLLM(NOT_COVERED))
     assert res.answer == NOT_COVERED and res.citations == []
+
+
+def test_daily_quota_429_is_not_retried():
+    msg = "429 RESOURCE_EXHAUSTED. quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier"
+    assert is_retryable(_Err(msg, 429)) is False
+    assert is_retryable(_Err("429 RESOURCE_EXHAUSTED per minute limit", 429)) is True
+
+
+def test_parse_citations_merged_bracket():
+    text = "Not returnable [Returns and Refunds §2.3, p.1, Returns and Refunds §3.1, p.1]. Also [Shipping and Delivery §3.1, p.1; Shipping and Delivery §3.2, p.1]."
+    assert parse_citations(text) == [Citation("Returns and Refunds", "2.3", 1), Citation("Returns and Refunds", "3.1", 1),
+                                     Citation("Shipping and Delivery", "3.1", 1), Citation("Shipping and Delivery", "3.2", 1)]

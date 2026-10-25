@@ -1,20 +1,20 @@
-{"id": "p01", "question": "How many days do I have to return an item if I just changed my mind?", "gold": [{"doc": "Returns and Refunds", "clause_id": "2.1"}]}
-{"id": "p02", "question": "Can I send back a mug that I had engraved with my name?", "gold": [{"doc": "Returns and Refunds", "clause_id": "3.1"}]}
-{"id": "p03", "question": "My vase broke in the post. How long do I have to report it and what proof do you need?", "gold": [{"doc": "Returns and Refunds", "clause_id": "4.2"}]}
-{"id": "p04", "question": "Do I have to post back a damaged item that only cost £6?", "gold": [{"doc": "Returns and Refunds", "clause_id": "4.3"}]}
-{"id": "p05", "question": "Can a wholesale customer return a damaged item after 40 days?", "gold": [{"doc": "Returns and Refunds", "clause_id": "7.4"}, {"doc": "Wholesale and B2B Terms", "clause_id": "6.2"}]}
-{"id": "p06", "question": "What fee do trade customers pay when they send stock back because they no longer want it?", "gold": [{"doc": "Returns and Refunds", "clause_id": "7.2"}]}
-{"id": "p07", "question": "Does the extended Christmas returns period also apply to business accounts?", "gold": [{"doc": "Returns and Refunds", "clause_id": "7.6"}]}
-{"id": "p08", "question": "How long is the guarantee on my fairy lights?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "2.2"}]}
-{"id": "p09", "question": "My handmade bowl has a slightly different glaze colour from the photo. Is that a defect?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "4.5"}]}
-{"id": "p10", "question": "My item stopped working after 3 months. Can I get my money back straight away?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "5.2"}]}
-{"id": "p11", "question": "When does a wholesale buyer get a credit for defective units in a delivery?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "8.2"}]}
-{"id": "p12", "question": "How much does next day delivery cost in the UK?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "2.2"}]}
-{"id": "p13", "question": "Is delivery free to Germany if I spend £130?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "3.1"}]}
-{"id": "p14", "question": "Who pays import duty on a parcel sent to France?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "3.2"}]}
-{"id": "p15", "question": "What is the last day to order with standard UK delivery to get it before Christmas?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "7.1"}]}
-{"id": "p16", "question": "What is the smallest first order a new trade account can place?", "gold": [{"doc": "Wholesale and B2B Terms", "clause_id": "2.1"}]}
-{"id": "p17", "question": "What discount do I get on a £3,000 wholesale order?", "gold": [{"doc": "Wholesale and B2B Terms", "clause_id": "3.1"}]}
-{"id": "p18", "question": "When is a business account suspended for unpaid invoices?", "gold": [{"doc": "Wholesale and B2B Terms", "clause_id": "4.6"}]}
-{"id": "p19", "question": "What happens to my loyalty points if I return something I bought?", "gold": [{"doc": "Loyalty Programme", "clause_id": "6.1"}, {"doc": "Returns and Refunds", "clause_id": "5.5"}]}
-{"id": "p20", "question": "How long do you keep my order records after I buy something?", "gold": [{"doc": "Customer Data and Privacy", "clause_id": "4.1"}]}
+{"id": "p01", "question": "How many days do I have to return an item if I just changed my mind?", "gold": [{"doc": "Returns and Refunds", "clause_id": "2.1"}], "split": "dev"}
+{"id": "p02", "question": "Can I send back a mug that I had engraved with my name?", "gold": [{"doc": "Returns and Refunds", "clause_id": "3.1"}], "split": "dev"}
+{"id": "p03", "question": "My vase broke in the post. How long do I have to report it and what proof do you need?", "gold": [{"doc": "Returns and Refunds", "clause_id": "4.2"}], "split": "dev"}
+{"id": "p04", "question": "Do I have to post back a damaged item that only cost £6?", "gold": [{"doc": "Returns and Refunds", "clause_id": "4.3"}], "split": "dev"}
+{"id": "p05", "question": "Can a wholesale customer return a damaged item after 40 days?", "gold": [{"doc": "Returns and Refunds", "clause_id": "7.4"}, {"doc": "Wholesale and B2B Terms", "clause_id": "6.2"}], "split": "dev"}
+{"id": "p06", "question": "What fee do trade customers pay when they send stock back because they no longer want it?", "gold": [{"doc": "Returns and Refunds", "clause_id": "7.2"}], "split": "dev"}
+{"id": "p07", "question": "Does the extended Christmas returns period also apply to business accounts?", "gold": [{"doc": "Returns and Refunds", "clause_id": "7.6"}], "split": "dev"}
+{"id": "p08", "question": "How long is the guarantee on my fairy lights?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "2.2"}], "split": "dev"}
+{"id": "p09", "question": "My handmade bowl has a slightly different glaze colour from the photo. Is that a defect?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "4.5"}], "split": "dev"}
+{"id": "p10", "question": "My item stopped working after 3 months. Can I get my money back straight away?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "5.2"}], "split": "dev"}
+{"id": "p11", "question": "When does a wholesale buyer get a credit for defective units in a delivery?", "gold": [{"doc": "Warranty and Product Quality", "clause_id": "8.2"}], "split": "dev"}
+{"id": "p12", "question": "How much does next day delivery cost in the UK?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "2.2"}], "split": "dev"}
+{"id": "p13", "question": "Is delivery free to Germany if I spend £130?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "3.1"}], "split": "dev"}
+{"id": "p14", "question": "Who pays import duty on a parcel sent to France?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "3.2"}], "split": "dev"}
+{"id": "p15", "question": "What is the last day to order with standard UK delivery to get it before Christmas?", "gold": [{"doc": "Shipping and Delivery", "clause_id": "7.1"}], "split": "dev"}
+{"id": "p16", "question": "What is the smallest first order a new trade account can place?", "gold": [{"doc": "Wholesale and B2B Terms", "clause_id": "2.1"}], "split": "dev"}
+{"id": "p17", "question": "What discount do I get on a £3,000 wholesale order?", "gold": [{"doc": "Wholesale and B2B Terms", "clause_id": "3.1"}], "split": "dev"}
+{"id": "p18", "question": "When is a business account suspended for unpaid invoices?", "gold": [{"doc": "Wholesale and B2B Terms", "clause_id": "4.6"}], "split": "dev"}
+{"id": "p19", "question": "What happens to my loyalty points if I return something I bought?", "gold": [{"doc": "Loyalty Programme", "clause_id": "6.1"}, {"doc": "Returns and Refunds", "clause_id": "5.5"}], "split": "dev"}
+{"id": "p20", "question": "How long do you keep my order records after I buy something?", "gold": [{"doc": "Customer Data and Privacy", "clause_id": "4.1"}], "split": "dev"}

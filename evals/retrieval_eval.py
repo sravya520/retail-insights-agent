@@ -16,8 +16,13 @@ sys.path.insert(0, str(ROOT / "src"))
 from ria.results_md import update_section  # noqa: E402
 from ria.retrieval import Retriever  # noqa: E402
 
-CONFIGS = [("BM25 only", "bm25", False), ("Vector only", "vector", False),
-           ("Hybrid (RRF k=60)", "hybrid", False), ("Hybrid + reranker", "hybrid", True)]
+# (name, mode, rerank, rerank_pool). The Phase 1 reranker row already used a pool of 20 (config.CANDIDATES),
+# so row 4 and row 5 run the same setup. Row 6 is a sensitivity check with a bigger pool.
+CONFIGS = [("BM25 only", "bm25", False, 20), ("Vector only", "vector", False, 20),
+           ("Hybrid (RRF k=60)", "hybrid", False, 20),
+           ("Hybrid + reranker (Phase 1 row)", "hybrid", True, 20),
+           ("Hybrid + reranker, pool 20 -> top 5 (explicit)", "hybrid", True, 20),
+           ("Hybrid + reranker, pool 40 -> top 5", "hybrid", True, 40)]
 
 
 def first_gold_rank(hits, gold) -> int | None:
@@ -32,10 +37,10 @@ def main() -> None:
     questions = [json.loads(line) for line in (ROOT / "evals" / "policy_questions.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
     retriever = Retriever()
     rows, misses = [], {}
-    for name, mode, rerank in CONFIGS:
+    for name, mode, rerank, pool in CONFIGS:
         ranks = []
         for q in questions:
-            hits = retriever.search(q["question"], mode=mode, top_k=5, rerank=rerank)
+            hits = retriever.search(q["question"], mode=mode, top_k=5, rerank=rerank, rerank_pool=pool)
             rank = first_gold_rank(hits, q["gold"])
             ranks.append(rank)
             if rank is None:

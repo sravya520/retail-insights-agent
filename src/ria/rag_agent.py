@@ -10,7 +10,9 @@ from ria.retrieval import Hit, Retriever
 
 NOT_COVERED = "The policy documents do not cover this."
 
-CITATION_RE = re.compile(r"\[([^\[\]§]+?)\s*§\s*([\w.]+),\s*p\.\s*(\d+)\]")
+BRACKET_RE = re.compile(r"\[([^\[\]]+)\]")
+# One citation inside a bracket. A bracket may hold several, e.g. [A §1.1, p.1, B §2.2, p.2] or [A §1.1, p.1; B §2.2, p.2].
+CITATION_RE = re.compile(r"([A-Za-z][^§\[\],;]*?)\s*§\s*([\w.]+),\s*p\.\s*(\d+)")
 
 SYSTEM_PROMPT = f"""You answer questions about the policies of Northwind Gifts, a UK online gift retailer.
 Use ONLY the numbered context passages below. Do not use outside knowledge.
@@ -18,7 +20,7 @@ Use ONLY the numbered context passages below. Do not use outside knowledge.
 Rules:
 1. Every factual sentence must end with one or more citations copied exactly from the passage headers, for example [Returns and Refunds §4.2, p.2].
 2. Cite only passages that support the sentence. Never invent a citation.
-3. If a question depends on whether the customer is retail or wholesale and this is not stated, give the rule for each.
+3. Answer only the case the user asked about. Do not add other cases, customer types or exceptions the question does not mention. If the question does not say whether the customer is retail or wholesale, answer for a retail customer and say "for a retail customer" once.
 4. You may use common knowledge only to map a place to a region named in the passages (for example, Spain is in the EU, France is in the EU, Japan is rest of world). All rules, numbers and conditions must come from the passages.
 5. If the passages do not contain the answer, reply with exactly: {NOT_COVERED}
 6. Be short and clear. Use plain language. Do not add a sources list at the end."""
@@ -43,10 +45,11 @@ class RagAnswer:
 def parse_citations(text: str) -> list[Citation]:
     """Extract citations like [Returns and Refunds §4.2, p.2], in order, without duplicates."""
     seen: list[Citation] = []
-    for doc, clause_id, page in CITATION_RE.findall(text):
-        cite = Citation(doc.strip(), clause_id.strip().rstrip("."), int(page))
-        if cite not in seen:
-            seen.append(cite)
+    for bracket in BRACKET_RE.findall(text):
+        for doc, clause_id, page in CITATION_RE.findall(bracket):
+            cite = Citation(doc.strip(), clause_id.strip().rstrip("."), int(page))
+            if cite not in seen:
+                seen.append(cite)
     return seen
 
 
@@ -66,10 +69,10 @@ def answer_policy_question(question: str, retriever: Retriever | None = None, ll
                            rerank: bool = False, top_k: int = config.TOP_K) -> RagAnswer:
     retriever = retriever or Retriever()
     hits = retriever.search(question, mode="hybrid", top_k=top_k, rerank=rerank)
-    llm = llm or get_llm()
+    llm = llm or get_llm("rag")
     messages = [("system", SYSTEM_PROMPT),
                 ("human", f"Context passages:\n\n{format_context(hits)}\n\nQuestion: {question}")]
-    reply = invoke_with_retry(llm, messages)
+    reply = invoke_with_retry(llm, messages, node="rag_agent")
     content = reply.content
     text = content if isinstance(content, str) else "".join(
         p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
