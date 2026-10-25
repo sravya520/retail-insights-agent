@@ -342,3 +342,4 @@ Known limits of the verifier (not fixed):
 - It extends the original rule in two ways: policy numbers are allowed if they appear in the cited chunk, and numbers repeated from the question are allowed. Without these, almost every policy answer would be removed.
 - `verified` is `True` when nothing had to be removed. If every sentence is removed the answer becomes a fixed fallback message. For out of scope questions `verified` is `None` because no answer text is checked.
 - The router and the whole graph are only tested on 5 real questions so far. There are no router or route-accuracy numbers until Phase 4.
+- The Phase 2 SQL accuracy (14/15) was measured before the Phase 3 SQL guardrail that rejects constants in the SELECT list and before the thinking and cache changes. I did not re-run it, to save API calls. Phase 4 reruns it.
