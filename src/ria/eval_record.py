@@ -16,6 +16,7 @@ def record_from_state(q: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:
         answer=out.get("answer", ""), draft=out.get("draft", ""), verified=out.get("verified"),
         removed=(out.get("verifier") or {}).get("removed", []), latency_s=out.get("latency_s"), error=None,
         usage=out.get("usage"), calls=out.get("calls"),
-        sql={k: sql.get(k) for k in ("sql", "columns", "rows", "error", "repaired", "repair_log")} if sql else None,
+        sql={k: sql.get(k) for k in ("sql", "columns", "rows", "error", "repaired", "repair_log",
+                                     "explanation_failed", "explanation_error")} if sql else None,
         rag={"chunks": rag["chunks"], "citations": rag["citations"]} if rag else None)
     return rec

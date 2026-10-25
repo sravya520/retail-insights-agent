@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import re
 import threading
+from decimal import Decimal
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -200,6 +201,8 @@ class SQLResult:
     error: str | None = None
     repaired: bool = False
     repair_log: list[dict[str, Any]] = field(default_factory=list)  # why each repair was needed
+    explanation_failed: bool = False  # the query ran but the written explanation could not be produced
+    explanation_error: str | None = None  # for the trace log only, never shown as the answer
 
     @property
     def ok(self) -> bool:
@@ -217,6 +220,27 @@ def format_table(columns: list[str], rows: list[tuple[Any, ...]], limit: int = R
     def fmt(v: Any) -> str:
         return f"{v:,.2f}" if isinstance(v, float) else str(v)
     lines = [" | ".join(columns)] + [" | ".join(fmt(v) for v in row) for row in rows[:limit]]
+    return "\n".join(lines)
+
+
+QUERY_FAILED_ANSWER = "I could not answer this from the sales data, because the query could not be run safely."
+WRITE_FAILED_ANSWER = "I could not write a query, because the language model was not available."
+EXPLANATION_UNAVAILABLE = "The query ran, but the written explanation is not available right now. These are the result rows:"
+
+
+def rows_answer(columns: list[str], rows: list[tuple[Any, ...]], limit: int = 10) -> str:
+    """A safe answer built by code from the SQL rows, used when the explanation step fails.
+
+    It contains no error text, and every number in it comes from the rows, so the verifier can check it.
+    """
+    if not rows:
+        return "The query ran, but the written explanation is not available right now, and the query returned no rows."
+    def fmt(v: Any) -> str:
+        return f"{v:,.2f}" if isinstance(v, (float, Decimal)) else str(v)
+    lines = [EXPLANATION_UNAVAILABLE]
+    lines += ["- " + ", ".join(f"{c}: {fmt(v)}" for c, v in zip(columns, row)) for row in rows[:limit]]
+    if len(rows) > limit:
+        lines.append("More rows were returned than are shown here.")
     return "\n".join(lines)
 
 
@@ -248,8 +272,8 @@ class SQLAgent:
         try:
             sql = self._generate(messages, "sql_agent.write")
         except LLMError as exc:
-            result.error = str(exc)
-            result.answer = "I could not write a query because the language model call failed."
+            result.error = str(exc)  # kept for the trace log, never put in the answer
+            result.answer = WRITE_FAILED_ANSWER
             return result
         for attempt in (1, 2):
             result.attempts = attempt
@@ -282,7 +306,7 @@ class SQLAgent:
                 entry["repair_succeeded"] = result.error is None
                 log_sql_repair(entry)
         if result.error:
-            result.answer = f"I could not answer this from the sales data. The query failed: {result.error}"
+            result.answer = QUERY_FAILED_ANSWER  # the error text stays in result.error for the trace log
             return result
         result.answer = self._explain(result)
         return result
@@ -295,4 +319,7 @@ class SQLAgent:
         try:
             return _text(invoke_with_retry(self.llm, [("human", prompt)], node="sql_agent.explain")).strip()
         except LLMError as exc:
-            return f"The query ran, but the explanation step failed: {exc}"
+            # Never return the error text: it would reach the user and the verifier. Show the rows instead.
+            result.explanation_failed = True
+            result.explanation_error = str(exc)[:500]
+            return rows_answer(result.columns, result.rows)

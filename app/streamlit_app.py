@@ -61,6 +61,8 @@ def render_details(meta: dict, key: str) -> None:
         sq = meta.get("standalone_question")
         if sq:
             st.caption(f"Question as understood by the router: {sq}")
+        if meta.get("explanation_failed"):
+            st.info("The written explanation could not be produced, so the answer lists the result rows instead.")
         if meta.get("sql"):
             st.markdown("**SQL used**" + (" (repaired once after an error)" if meta.get("sql_repaired") else ""))
             st.code(meta["sql"], language="sql", wrap_lines=True)

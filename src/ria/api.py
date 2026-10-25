@@ -50,6 +50,7 @@ class AskResponse(BaseModel):
     sql_rows: list[list[Any]] = []
     sql_row_count: int = 0
     sql_repaired: bool = False
+    explanation_failed: bool = False
     citations: list[Citation] = []
     verified: bool | None
     removed: list[dict[str, Any]] = []

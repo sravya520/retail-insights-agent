@@ -155,7 +155,8 @@ def build_graph(services: Services, checkpointer: Any = None):
         res = services.sql_agent.run(state["data_question"])
         sql = {"sql": res.sql, "columns": res.columns, "rows": [[_jsonable(v) for v in r] for r in res.rows],
                "answer": res.answer, "error": res.error, "repaired": res.repaired,
-               "repair_log": res.repair_log}
+               "repair_log": res.repair_log, "explanation_failed": res.explanation_failed,
+               "explanation_error": res.explanation_error}
         return {"sql": sql, "trajectory": state["trajectory"] + ["sql_agent"]}
 
     def rag_agent(state: State) -> State:
@@ -229,6 +230,11 @@ def ask(app: Any, question: str, thread_id: str = "default", label: str | None =
         "thread_id": thread_id, "question": question, "standalone_question": state.get("standalone_question"),
         "route": state.get("route"), "trajectory": state.get("trajectory"), "verified": state.get("verified"),
         "removed": (state.get("verifier") or {}).get("removed", []), "latency_s": state["latency_s"],
-        "model": config.GEMINI_MODEL, "label": label, "layout": config.PROMPT_LAYOUT, **state["usage"],
+        "model": config.GEMINI_MODEL, "label": label, "layout": config.PROMPT_LAYOUT,
+        # Error texts go to the trace log only. The answer never contains them.
+        "sql_error": (state.get("sql") or {}).get("error"),
+        "explanation_failed": bool((state.get("sql") or {}).get("explanation_failed")),
+        "explanation_error": (state.get("sql") or {}).get("explanation_error"),
+        **state["usage"],
         "calls": state["calls"]})
     return state

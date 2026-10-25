@@ -70,6 +70,7 @@ def shape_answer(state: dict[str, Any]) -> dict[str, Any]:
         "sql_rows": [list(r) for r in ((sql or {}).get("rows") or [])[:MAX_ROWS_RETURNED]],
         "sql_row_count": len((sql or {}).get("rows") or []),
         "sql_repaired": bool((sql or {}).get("repaired")),
+        "explanation_failed": bool((sql or {}).get("explanation_failed")),  # the flag only, never the error text
         "citations": citations,
         "verified": state.get("verified"),
         "removed": (state.get("verifier") or {}).get("removed", []),
