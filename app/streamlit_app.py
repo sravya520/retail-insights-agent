@@ -63,7 +63,7 @@ def render_details(meta: dict, key: str) -> None:
             st.caption(f"Question as understood by the router: {sq}")
         if meta.get("sql"):
             st.markdown("**SQL used**" + (" (repaired once after an error)" if meta.get("sql_repaired") else ""))
-            st.code(meta["sql"], language="sql")
+            st.code(meta["sql"], language="sql", wrap_lines=True)
             if meta.get("sql_rows"):
                 import pandas as pd
                 st.dataframe(pd.DataFrame(meta["sql_rows"], columns=meta.get("sql_columns") or None), hide_index=True)
@@ -84,11 +84,12 @@ def render_details(meta: dict, key: str) -> None:
         else:
             st.caption("Verifier: not applicable (the question was refused, so there is no answer text to check).")
         t = meta.get("tokens") or {}
-        m1, m2, m3, m4 = st.columns(4)
-        m1.metric("Tokens (in / out)", f"{t.get('input', 0)} / {t.get('output', 0)}", help=f"Cached input tokens: {t.get('cached', 0)}")
-        m2.metric("Cost", f"${meta.get('cost_usd', 0):.5f}", help="What this usage would cost at paid-tier list prices. The free tier bills nothing.")
-        m3.metric("Latency", f"{meta.get('latency_s', 0):.1f} s", help=f"Time inside model calls: {meta.get('model_latency_s', 0):.1f} s")
-        m4.metric("Model calls", meta.get("llm_calls", 0), help=f"Model: {meta.get('model', '')}")
+        st.markdown(
+            "| Tokens in | Tokens out | Cached in | Cost (USD) | Latency | Model time | Model calls |\n|---|---|---|---|---|---|---|\n"
+            f"| {t.get('input', 0):,} | {t.get('output', 0):,} | {t.get('cached', 0):,} | ${meta.get('cost_usd', 0):.5f} | "
+            f"{meta.get('latency_s', 0):.1f} s | {meta.get('model_latency_s', 0):.1f} s | {meta.get('llm_calls', 0)} |")
+        st.caption(f"Cost is what this usage would cost at paid-tier list prices. The free tier bills nothing. Model: {meta.get('model', '')}. "
+                   "Latency is wall time. Model time is the time spent inside model calls.")
 
 
 def render_message(i: int, msg: dict) -> None:

@@ -60,7 +60,7 @@ Gemini free quotas are per Google project. If the demo uses the same key as your
 
 Things to know:
 
-- Streamlit Community Cloud documents RAM of roughly 690 MB minimum and 2.7 GB maximum (their page says these figures are approximate). I have **not** measured this app on Streamlit Cloud. Below I give the memory I measured locally. If the app shows a "resource limits" error, use the Docker route.
+- Streamlit Community Cloud documents RAM of roughly 690 MB minimum and 2.7 GB maximum (their page says these figures are approximate). I have **not** run this app on Streamlit Cloud. Locally I measured about 624 MB for the agent after the first policy search, plus about 70 MB for Streamlit itself, so roughly 700 MB: close to the documented minimum. If the app shows a "resource limits" error or restarts, use the Docker route.
 - A sleeping app wakes when someone opens it (apps sleep after 12 hours without traffic, per the Streamlit docs). The usage counters are kept in a file on the app's disk, so they can reset when the app restarts. The daily limit is a safeguard, not an exact meter.
 - Anyone can reach the daily cap of 60 questions. The pre-computed examples keep working when that happens.
 - The per-visitor limit uses a hash of the visitor's IP address when the host passes it on, otherwise a random id per browser session. It is a soft limit. A visitor with several browsers can get around it, but the daily cap still holds.
@@ -80,7 +80,7 @@ It then also runs every night at 01:30 UTC. It uses about 30 model calls a night
 ## If Streamlit Community Cloud is not enough (untested alternatives)
 
 - **Hugging Face Spaces (Docker).** Create a Space with the Docker SDK, copy this repository into it, and add `GOOGLE_API_KEY` as a Space secret. The `Dockerfile` listens on 8501 (Streamlit) and 8000 (API); a Space needs the app port set to 8501 in its README front matter (`app_port: 8501`). I did not test this and I did not check the current free hardware limits.
-- **Render.** I could not find the free instance RAM on Render's docs page, so I did not rely on it. The agent needs more than 500 MB in my measurement below, so I would not expect Render's free tier to be enough.
+- **Render.** I could not find the free instance RAM on Render's docs page, so I did not rely on it. The agent needs about 700 MB in my local measurement, so I would not expect a 512 MB instance to be enough (Render's free RAM is not on the page I read, so check it yourself).
 - **AWS App Runner.** Build the image, push it to Amazon ECR, create an App Runner service from the image on port 8501, and add `GOOGLE_API_KEY` as a secret. App Runner is not free. I did not test this.
 
 ## Docker (untested)
@@ -94,4 +94,4 @@ Docker Desktop was not running on my machine, so I could not build the image. Wh
 
 ## What I tested instead
 
-A clean clone of the repository was started the way a fresh host would start it. The result is in the "Clean checkout test" section of `docs/results.md`.
+A clean clone of the repository was started the way a fresh host would start it (`scripts/start.sh`). The result, the memory measurements and the real error paths are in the Phase 6 section of `docs/results.md`.

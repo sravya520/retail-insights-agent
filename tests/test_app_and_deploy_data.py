@@ -67,8 +67,9 @@ def test_opening_a_precomputed_example_shows_every_detail_and_uses_no_quota(monk
     assert "Agent trajectory" in inside and "router" in inside and "SQL used" in inside and "Citations" in inside
     assert any("Pre-computed, not live" in i.value for i in expander.info)
     assert any("Verified" in s.value for s in expander.success)
-    labels = [m.label for m in expander.metric]
-    assert labels == ["Tokens (in / out)", "Cost", "Latency", "Model calls"]
+    table = " ".join(x.value for x in expander.markdown)
+    for column in ("Tokens in", "Tokens out", "Cached in", "Cost (USD)", "Latency", "Model calls"):
+        assert column in table, column
     assert len(expander.code) == 1 and expander.code[0].language == "sql"
 
 

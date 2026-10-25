@@ -228,7 +228,8 @@ The small cost and latency difference between the two layouts is not a caching e
 - **Known weaknesses.** One policy question (p10) still misses its gold clause. Two dev policy questions were routed to the wrong path before the router fix, whose effect is unmeasured. The RAG prompt used to add "for a retail customer" to answers (judged unsupported); the fix is unmeasured.
 - **Free tier limits.** The answering model's free quota allowed about 440 calls in one day. Latency swings with API load. Live demo answers take roughly 10 to 25 seconds. Explicit context caching is not available on the free tier.
 - **Prices** in `config.PRICES` were checked on 2026-10-25 and will change. Two of the models listed double in price on 2027-01-01.
-- **Not tested here:** the Dockerfile, the GitHub Actions nightly job on GitHub itself, Langfuse against a live account, and the Streamlit Cloud deployment. See `docs/DEPLOY.md`.
+- **Memory.** The agent plus the embedding model needs about 700 MB in my local measurement. That is close to the documented minimum of Streamlit Community Cloud, so a deployment may be unstable there.
+- **Not tested here:** the Dockerfile, the GitHub Actions nightly job on GitHub itself, Langfuse against a live account, and the Streamlit Cloud deployment. A clean clone was started locally with `scripts/start.sh`. See `docs/DEPLOY.md` and the Phase 6 section of `docs/results.md`.
 
 ## What I would do next
 
