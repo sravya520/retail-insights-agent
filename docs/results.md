@@ -13,13 +13,13 @@ Every number below was produced by the command shown next to it. Sections betwee
 | Phase 5 caching experiment and token report | `gemini-3.5-flash-lite` for every component | Cache off. 20 held-out v1 questions, no judge. |
 | Graph example runs (Phase 3) | `gemini-3.5-flash-lite` for router (low), SQL agent (low), RAG agent (medium), combiner (medium) | Cache on, so some calls in the examples came from cache. |
 
-Nothing in this file was produced by `gemini-3.8-flash`. Its calls early in Phase 1 were discarded. Phase 4 will rerun every component on one model, so the numbers can be compared.
+Nothing in this file was produced by `gemini-3.8-flash`. Phase 4 reran every answering component on one model (section "Eval v1").
 
 ## Phase 1: Documents and RAG
 
 What was built:
 
-- 6 synthetic policy documents for the fictional Northwind Gifts, as Markdown and PDF (2 to 3 pages each), 182 clauses in total.
+- 6 synthetic policy documents for the fictional Northwind Gifts, as Markdown and PDF, 182 clauses in total (`python -m ria.ingest_docs`).
 - Ingestion with `pypdf`, chunked by numbered clause, with `doc`, `section`, `clause_id` and `page` kept. Embeddings with `BAAI/bge-small-en-v1.5` in Chroma.
 - Hybrid retrieval (BM25 plus vector, RRF k=60) with an optional cross-encoder reranker.
 - A RAG agent with a strict citation format and a citation parser that checks each citation against the retrieved chunks.
@@ -27,9 +27,9 @@ What was built:
 
 What did not work or is not done:
 
-- **Example answers were generated in a second run, after two fixes.** The first run (reranker on, original prompt) said "The policy documents do not cover this" for the Spain shipping question. Cause: the reranker pushed Shipping §3.2 out of the top 5, and the model did not link Spain to "EU". Fixes: the examples now use plain hybrid search (the best method in the eval), and the prompt lets the model map a country to a region named in the policy. The first run is not kept. I did not fix the model changing its answer on a rerun, so the examples show one run only.
-- The configured model `gemini-2.5-flash` returned a 404 (no longer available). See "Model, quota and latency" below for what changed after that.
-- The mug example used to add a wholesale case the question did not ask for. The prompt now says to answer only the case asked (retail is assumed when the customer type is not stated, and the answer says so once). The current examples are from a run with the new prompt.
+- **Example answers were generated after two fixes (found during development, raw output not saved).** An earlier run answered "The policy documents do not cover this" for the Spain shipping question. Fixes: the examples use plain hybrid search (the best method in the retrieval eval), and the prompt lets the model map a country to a region named in the policy. The examples show one run only.
+- The first configured model, `gemini-2.5-flash`, was no longer available (found during development, raw output not saved). See "Model, quota and latency" below.
+- The mug example used to add a wholesale case the question did not ask for (found during development, raw output not saved). The example answers above were produced with the RAG prompt of that time, which told the model to say "for a retail customer" when the customer type was not stated. That rule was replaced after eval v1 (see "Dev fixes and eval v2").
 - Question p10 ("My item stopped working after 3 months...") is missed by every method. The gold clause is Warranty 5.2.
 - The reranker (`cross-encoder/ms-marco-MiniLM-L-6-v2`) did not improve recall and lowered MRR@5 from 0.850 to 0.771 on this set. It already reranked the top 20 hybrid candidates and kept the top 5 in the Phase 1 run. The pool size is now an explicit setting (`RERANK_POOL = 20`). Re-running with it gives the same numbers, and a pool of 40 is slightly lower (see the table). With only 20 questions, one question moving one rank changes MRR by a visible amount, so treat small differences as noise.
 - The gold labels were written by hand before the run. They were not tuned after seeing results.
@@ -182,10 +182,10 @@ Command: `python evals/call_latency.py`. Latency is the time inside the model ca
 
 ## Model, quota and latency (read this before trusting any timing)
 
-- The default model is now `gemini-3.5-flash-lite` (set in `src/ria/config.py`). `gemini-3.8-flash` was tried first. Its free tier allows only 20 requests per day, which I used up, and single calls took 224 to 327 seconds in one run. `gemini-3.5-flash-lite` allows 15 requests per minute on the free tier (the API error said so). Its daily limit is not shown to me.
-- Thinking level (from the Gemini docs, setting `thinking_level`): router `low`, SQL agent `low`, RAG agent `medium`. At the default (minimal) level the lighter model wrongly answered "not covered" for the wholesale damage question, although retrieval had the right clause first. This was seen once on one question and not tested further.
-- Call latency swings a lot with API load. The first SQL eval run took about 2 seconds per question. The final run took a median of 15 seconds per question (7 to 8 seconds per call). I did not control for this, so treat all latency numbers as one sample.
-- Tenacity now waits longer between retries (random up to 4, 8, 16 and 32 seconds) and a 4.5 second gap between calls keeps the free tier under 15 requests per minute. A 429 that says the daily quota is used up is not retried, because waiting seconds cannot fix it. This is a small change from "retry on every 429".
+- The default model is now `gemini-3.5-flash-lite` (set in `src/ria/config.py`). `gemini-3.8-flash` was tried first. It was much slower and its free daily quota ran out quickly (found during development, raw output not saved). The free daily limit of `gemini-3.5-flash-lite` is 500 requests, as stated in the API's own error message saved in `evals/runs/run-dev-after-fixes/records.jsonl` (`python scripts/doc_facts.py`). It also has a per-minute limit, which a development run hit (found during development, raw output not saved).
+- Thinking level (from the Gemini docs, setting `thinking_level`): router `low`, SQL agent `low`, RAG agent `medium`. At the default (minimal) level the lighter model once wrongly answered "not covered" for the wholesale damage question (found during development, raw output not saved). This was not tested further.
+- Call latency swings a lot with API load. An earlier SQL eval run was much faster than the reported one (found during development, raw output not saved). The reported run took a median of 15.0 seconds per question (table "SQL agent execution accuracy"). I did not control for this, so treat all latency numbers as one sample.
+- Tenacity now waits longer between retries (random up to 4, 8, 16 and 32 seconds) and a 4.5 second gap between calls (`MIN_SECONDS_BETWEEN_CALLS` in `config.py`) keeps the free tier under its per-minute limit. A 429 that says the daily quota is used up is not retried, because waiting seconds cannot fix it. This is a small change from "retry on every 429".
 - Every LLM call is logged to `logs/llm_calls.jsonl` with node, model, tokens, latency (model time only) and wait time. The log before the fix is kept as `logs/llm_calls_old_pre_fix.jsonl`.
 
 ## Phase 2: Sales database and SQL agent
@@ -203,7 +203,7 @@ Honest notes on the SQL numbers:
 - All 15 SQL questions are in the dev split. I wrote them and the gold SQL, and I ran them to check the agent. Held-out questions come in Phase 4 (see `evals/DEV_SPLIT.md`).
 - The score of 14/15 is strict. The one miss (q15) is a label difference: the agent returned the quarter as `'Q1'` to `'Q4'` and the gold has `1` to `4`. The revenue numbers are identical. I did not loosen the comparison after seeing this. With a lenient label check the score would be 15/15.
 - Gold answers are produced by running my gold SQL on the database (`python evals/build_sql_gold.py`). They are as correct as my SQL is.
-- The first full run hit the 15 requests per minute limit on the last two questions (13 of 13 answered passed). That is why the pacing gap exists. The reported run is a complete re-run.
+- The first full run hit the free tier's per-minute limit on its last questions (found during development, raw output not saved). That is why the pacing gap exists. The reported run is a complete re-run.
 - The question "Which product sold the most units" and the product questions rely on `is_merchandise` and the `products` view. The schema text tells the model so.
 
 <!-- BEGIN phase3_examples -->
@@ -322,7 +322,7 @@ What was built (commands shown are the ones that produced the numbers):
 - `llm.py`: a local response cache (flag `LLM_CACHE_ENABLED` in `config.py`, or `RIA_LLM_CACHE=0`). The key is model, full prompt and settings. Cache hits are logged in `logs/llm_calls.jsonl` with `cache_hit: true`. The default is on. `evals/sql_eval.py` turns it off. The final eval and latency runs must turn it off too.
 - Tests: `pytest` gives 86 passed (command: `pytest`). New tests cover the verifier (fabricated number, fake citation, rounding, citation after the full stop, list markers, idempotence), the router schema, all four routes end to end on a mocked LLM, memory across turns and across threads, the split of a `both` question, the trace line, and the cache (hit, off switch, key changes, structured calls).
 
-Real API use in Phase 3: 23 model calls in total (10 router, 8 SQL, 3 RAG, 2 combiner), no errors. This is more than the 14 I planned, because I ran the examples three times: one run crashed on a bug, and one run exposed the two problems below. The repeats were partly answered from cache.
+I ran the examples three times: one run crashed on a bug, and one run exposed the two problems below (found during development, raw output not saved). The repeats were partly answered from cache.
 
 What the examples showed (section above, produced by `python evals/graph_examples.py`):
 
@@ -332,10 +332,10 @@ What the examples showed (section above, produced by `python evals/graph_example
 
 Two real problems found and fixed during this phase:
 
-1. **The SQL agent invented a number.** In the first `both` run the SQL agent wrote `SELECT COUNT(...), 28 AS return_window_days ...`. The 28 came from nowhere (the policy says 30), and the verifier accepted it because it was in the SQL result. Fixes: (a) a new SQL guardrail rejects constant values in the top-level SELECT list, so the agent must repair the query, and (b) the router now splits a `both` question into `data_question` and `policy_question`, so each agent only sees its own part. The fix is unit-tested. I did not measure how often the model invented constants before the fix.
-2. **The mixed question confused the RAG agent.** It saw the whole mixed question and answered "The policy documents do not cover this", and the combiner kept that next to the invented 28. After the split, the answer is correct: 326 returned orders, and 30 days with the citation `[Returns and Refunds §2.1, p.1]`.
+1. **The SQL agent invented a number (found during development, raw output not saved). Found and fixed, covered by tests.** In a `both` example run the SQL agent added a constant column, `28 AS return_window_days`, to its query. The 28 matched no data (the policy says 30 days, Returns and Refunds §2.1), and the verifier accepted it because it was in the SQL result. Fixes: (a) a SQL guardrail rejects numeric constants in the top-level SELECT list, so the agent must repair the query, and (b) the router splits a `both` question into `data_question` and `policy_question`, so each agent only sees its own part. Tests: `tests/test_phase2.py` rejects `SELECT COUNT(*) AS n, 28 AS return_window_days FROM returns`, `tests/test_tracing.py` checks that a query with a numeric constant gets a logged repair, and `tests/test_graph.py` checks the split. I did not measure how often the model invented constants before the fix.
+2. **The mixed question confused the RAG agent (found during development, raw output not saved).** It saw the whole mixed question and answered "The policy documents do not cover this", and the combiner kept that next to the invented 28. After the split, the answer is correct: 326 returned orders, and 30 days with the citation `[Returns and Refunds §2.1, p.1]`.
 
-Also fixed: on a cache miss, Gemini can return reply content as a list of parts, which crashed the combiner. `invoke_with_retry` now always returns text.
+Also fixed (found during development, raw output not saved): on a cache miss, Gemini can return reply content as a list of parts, which crashed the combiner. `invoke_with_retry` now always returns text (test: `tests/test_cache.py::test_list_content_is_returned_as_text`).
 
 Known limits of the verifier (not fixed):
 
@@ -399,6 +399,8 @@ Gold queries wrongly blocked by the SQL guardrail: 0 of 26.
 Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
 <!-- END eval_v1 -->
 
+SQL execution accuracy, held-out: 10 of 10 on eval v1; two later runs on the same questions gave 10 of 10 and 9 of 10 (`python scripts/doc_facts.py`, block 1; the later runs are `caching-question_first` and `caching-stable_first`, and the miss is h14).
+
 
 ## Phase 4: reading the evaluation above
 
@@ -410,7 +412,7 @@ What was built (all run by `python evals/run_evals.py`, with `--report` to rebui
 - Records of every question are saved in `evals/runs/run-phase4/records.jsonl`. The run stops cleanly and can resume if a daily quota runs out. It did not run out for the answering model.
 - Tests: `pytest` gives 101 passed (command: `pytest`).
 
-Real API calls: **206** in the run (152 answering, 54 judge). Two of the 54 judge calls failed on the daily quota of the first two judge models. A smoke test with 2 questions before the run used 8 more calls and is not in the 206.
+Real API calls: **206** in the run (152 answering, 54 judge). Two of the 54 judge calls failed on the daily quota of the first two judge models. A small smoke test before the run is not in the 206.
 
 ### Gates
 
@@ -419,18 +421,18 @@ All three gates passed. Read gate 1 with care. The verifier changed **0 of 52** 
 ### SQL guardrail check after the constant rule
 
 - The constant guardrail blocked **0 of the 26** gold queries (15 dev, 11 held-out gold queries including the data part of the both questions). The q15 labels `'Q1'` to `'Q4'` were never blocked, because they sit inside a `CASE` and are not a bare constant.
-- The rule did block a plain string label such as `SELECT 'Germany' AS country, SUM(revenue) ...`, which is legitimate. As you asked, I narrowed the rule to numeric constants in the top-level SELECT list. Tests cover both cases: string labels and CASE labels are allowed, and `28 AS window_days` and `SELECT 42` are rejected.
+- An earlier version of the rule also blocked a plain string label such as `SELECT 'Germany' AS country, SUM(revenue) ...`, which is legitimate (found during development, raw output not saved). As you asked, I narrowed the rule to numeric constants in the top-level SELECT list. Tests cover both cases: string labels and CASE labels are allowed, and `28 AS window_days` and `SELECT 42` are rejected.
 - Scores: before the guardrail (Phase 2, 15 dev data questions) 14/15. After the guardrail and the narrowing (this run, same 15 questions) 14/15. The same question fails both times: q15, where the agent returns the labels `'Q1'` to `'Q4'` and the gold has `1` to `4`. The revenue numbers are identical. I kept the comparison strict.
-- One query in the run (held-out h04) needed the one repair attempt and then passed. I did not record why the first query was rejected, so I cannot say whether the guardrail caused it. I should log the repair reason in the next phase.
+- One query in the run (held-out h04) needed the one repair attempt and then passed (`python scripts/doc_facts.py`, block 5). I did not record why the first query was rejected, so I cannot say whether the guardrail caused it. I should log the repair reason in the next phase.
 
 ### What the numbers do and do not show
 
-- **Held-out is 100% on every metric, but the sets are small.** The 95% lower bounds are 84% for 20 questions and 72% for 10. A perfect score on 20 questions is consistent with a true rate of about 85%. My held-out questions may also be easier than real user questions, because they are clean, single-topic and in plain English.
-- **Two real router errors, both on dev questions.** p07 ("Does the extended Christmas returns period also apply to business accounts?") and p19 ("What happens to my loyalty points if I return something I bought?") were routed to `both` instead of `policy`. The system then ran an unneeded SQL query. The p07 answer starts with an irrelevant sentence about return counts by country. This is the only wrong trajectory in the run.
+- **Held-out is 100% on every metric, but the sets are small.** The 95% lower bounds are 84% for 20 questions and 72% for 10, so a perfect score on these sets proves little. My held-out questions may also be easier than real user questions, because they are clean, single-topic and in plain English.
+- **Two real router errors, both on dev questions.** p07 ("Does the extended Christmas returns period also apply to business accounts?") and p19 ("What happens to my loyalty points if I return something I bought?") were routed to `both` instead of `policy` (`python scripts/doc_facts.py`, block 5). The system then ran an unneeded SQL query. The p07 answer starts with an irrelevant sentence about return counts. These are the only wrong trajectories in the run.
 - **Retrieval:** p10 still misses its gold clause (Warranty 5.2), as in Phase 1. Every other policy and both question retrieved a gold clause in its top 5.
 - **The judge is lenient and mostly self-judging.** The judge gave answer relevance 5 to every answer, including p07 with its irrelevant sentence, so the relevance mean of 5.00 is not credible. For the held-out split, 15 of 16 answers were judged by `gemini-3.6-flash` and 1 by the answering model. For the dev split, all 36 were judged by the answering model, because `gemini-3.6-flash` and `gemini-3.7-flash` ran out of free daily quota. Self-judging can inflate scores, so the dev judge scores are weak evidence. Temperature 0 was requested, but `gemini-3.5-flash-lite` uses fixed sampling settings and ignores it, so its scores are not guaranteed to repeat.
 - **Calibration is pending.** The judge's agreement with human labels is not computed. See `evals/HUMAN_LABELS.md`.
-- **My own prompt adds an unsupported phrase.** All faithfulness scores below 5 come from "For a retail customer, ..." added by the RAG prompt rule to answers where the question did not say that (held-out h11, dev p14 and p15) and from one rounding note (q04). That phrase is not in the cited passage. I did not change the prompt, because h11 is a held-out question and fixing the prompt after seeing it would make held-out no longer held-out.
+- **My own prompt adds an unsupported phrase.** All faithfulness scores below 5 come from "For a retail customer, ..." added by the RAG prompt rule to answers where the question did not say that (held-out h11, dev p14 and p15) and from one rounding note (q04) (`python scripts/doc_facts.py`, block 5). That phrase is not in the cited passage. I did not change the prompt, because h11 is a held-out question and fixing the prompt after seeing it would make held-out no longer held-out.
 - The policy `gold_text` field is not used by any metric. Policy answers are scored by gold citation recall and the judge only, so a policy answer with the right citations and a wrong statement would not be caught except by the judge.
 - Wall times include the 4.5 second pacing gaps, so they are not model latency. Phase 5 reports per-call latency.
 
@@ -539,7 +541,7 @@ Total input tokens in these requests: 23839. Total tokens including output: 3466
 What was built:
 
 - **Tracing** (`src/ria/tracing.py`). Every LLM call is logged to `logs/llm_calls.jsonl` with node, model, input, output and cached tokens, reasoning tokens, latency (model time only), wait time, cost and cache hit. Every request is logged to `logs/traces.jsonl` with the question, route, trajectory, verified flag, total tokens, total cost, model latency, wall time and the list of its calls. Cache hits add no tokens, cost or latency to a request total. SQL repairs are logged to `logs/sql_repairs.jsonl` with the stage that failed (validation or execution), the failed SQL and the error.
-- **Price table** in `config.PRICES` (USD per million tokens, editable): `gemini-3.5-flash-lite` input 0.30, output 2.50, cached input 0.03. I read the prices from the Gemini pricing page through a page summariser, so please check them against the page. The free tier bills nothing, so all costs below are what the same usage would cost on a paid plan.
+- **Price table** in `config.PRICES` (USD per million tokens, editable): `gemini-3.5-flash-lite` input 0.30, output 2.50, cached input 0.03. I copied the prices from the Gemini pricing page. In Phase 6 I compared them with the raw page (found during development, raw output not saved). The free tier bills nothing, so all costs below are what the same usage would cost on a paid plan.
 - **Langfuse**: skipped. No Langfuse keys are in `.env`. The code attaches the Langfuse callback only when both keys are set and the package imports, and never raises. Tests cover the skip and the failure case. I have not tested it against a live Langfuse account.
 - **Reports**: `evals/token_report.py` (section "Token economics"), `evals/caching_experiment.py` (section "Caching experiment"), `evals/explicit_cache_trial.py` (section "Explicit context caching trial").
 - **Nightly job** `.github/workflows/nightly-eval.yml`: installs, builds the vector index and the DuckDB database, runs the offline tests, then runs a fixed 10-question subset (`evals/nightly_subset.json`: 3 data, 3 policy, 2 both, 2 out of scope, all from the v1 held-out set) on the real model with the cache off, no judge and no write to this file. The job fails if a test fails or a gate fails. I cannot run GitHub Actions from here (this folder has no remote). What I did run: the YAML parses, the exact eval command ran locally on all 10 questions (10 of 10 questions answered, all three gates passed, exit code 0, 30 real API calls), and a test (`tests/test_nightly_gate.py`) proves that an answered out of scope question gives exit code 1. The Hugging Face model download and the dataset download steps in the workflow are untested in CI.
@@ -548,20 +550,20 @@ What was built:
 
 ### Reading the caching experiment
 
-- **Correction found after the experiment ran.** The question-first baseline layout was applied to the router and the SQL write prompts only. The RAG prompt was not switched, because a patch of mine silently did not apply, so the RAG calls were identical in both runs (average input 530 and 532 tokens). I fixed this afterwards and did not re-run the experiment, to save quota. The conclusion does not depend on it: no prompt reached a size where caching can trigger, and the RAG prompt is about 530 tokens in either layout.
-- **Caching did not trigger on this model.** Cached tokens were 0 in both layouts and 0 in the identical-prompt probe (the same 894-token SQL prompt sent 4 times in a row). The SQL prompt is far smaller than the minimum the caching docs list for implicit caching on the newer Flash models (4,096 tokens on `gemini-3.6-flash`). The docs give no minimum for `gemini-3.5-flash-lite`. My prompts are 150 to 900 tokens.
+- **Correction (found during development, raw output not saved).** The question-first baseline layout was applied to the router and the SQL write prompts only. The RAG prompt was not switched, because a patch of mine silently did not apply, so the RAG calls were identical in both runs (average input 530 and 532 tokens). I fixed this afterwards and did not re-run the experiment, to save quota. The conclusion does not depend on it: no prompt reached a size where caching can trigger, and the RAG prompt is about 530 tokens in either layout.
+- **Caching did not trigger on this model.** Cached tokens were 0 in both layouts and 0 in the identical-prompt probe (the same 894-token SQL prompt sent 4 times in a row). For explicit caching, the API itself reports a minimum of 1,024 tokens (table "Explicit context caching trial"), and the SQL prompt has 879. The other prompts are shorter (table "Average tokens per call by node and layout").
 - **Explicit caching is blocked in two ways.** The API refuses to cache the SQL prompt because it has 879 tokens and the minimum is 1,024. A padded prompt that passes the minimum is refused too, because the free tier has a cached storage limit of 0 for this model. So explicit caching is not possible here without a paid plan, and a longer prompt.
-- **The before and after difference is not a caching effect.** Input tokens are almost the same in both layouts (23,882 and 23,839 tokens, input cost $0.007165 and $0.007152). The 4.7% lower cost per query in the second run comes from fewer output tokens (11,494 and 10,823), which are mostly thinking tokens and vary from run to run. The latency difference has the same cause plus one 22.8 second outlier in the first run. I would not claim any improvement from the prompt layout.
-- **Even perfect caching would help little.** Output tokens are about 79% of the cost in these runs and input tokens about 21%. Cached input is billed at one tenth of the input price here. So if every input token were cached, the saving would be at most about 19% of cost. Only the repeated static parts of the prompts could be cached, so the real ceiling is lower.
+- **The before and after difference is not a caching effect.** Input tokens are almost the same in both layouts (23,882 and 23,839). The 4.7% lower cost per query in the second run comes from fewer output tokens (11,494 and 10,823, `python scripts/doc_facts.py`), which vary from run to run. I would not claim any improvement from the prompt layout.
+- **Even perfect caching would help little.** Output tokens are 79.1% of the cost in the production-layout run. Cached input is billed at one tenth of the input price (`config.PRICES`). So if every input token were cached, the saving would be at most 18.8% of cost (`python scripts/doc_facts.py`). Only the repeated static parts of the prompts could be cached, so the real ceiling is lower.
 - **The biggest cost lever is thinking tokens, not the prompt.** RAG and combiner calls average 535 and 752 output tokens for answers of a few sentences, because their thinking level is `medium`. I did not change this. Lowering it would change answer quality, which I have not measured.
-- **The model is not fully repeatable.** On held-out question h14 ("total value of returns in 2010") the SQL agent returned the gold answer in the first run and in the Phase 4 run, but in the second experiment run it added `is_merchandise = TRUE`, which gave a different number (245,842 instead of 679,179). Temperature 0 is requested but this model ignores it. So single-run accuracy numbers, including the 100% SQL accuracy in eval v1, carry run-to-run noise that I have not measured.
+- **The model is not fully repeatable.** On held-out question h14 ("total value of returns in 2010") the SQL agent returned the gold answer in the first run and in the Phase 4 run, but in the second experiment run it added `is_merchandise = TRUE`, which gave a different number (245,841.79 instead of 679,179.41, `python scripts/doc_facts.py`). Temperature 0 is requested but this model ignores it. So single-run accuracy numbers, including the 100% SQL accuracy in eval v1, carry run-to-run noise that I have not measured.
 
 ### Reading the token report
 
 - Per query, on this 20 question mix, the cost is about $0.0017 ($1.71 per 1,000 queries). By route, per 1,000 queries: data $0.83, policy $1.88, both $4.21, out of scope $0.28. A `both` question costs about 15 times an out of scope question, because it makes 5 calls and the RAG and combiner calls produce long thinking output.
 - The schema description is 24% of all input tokens (17% of all tokens). The retrieved policy context is 11% of input tokens. The few-shot examples are 9%. Output tokens (thinking included) are 31% of all tokens.
 - Route groups hold 4 to 6 requests each, so the per-route numbers are rough. The token report is run again at the end of this phase on a larger set (see the v2 section).
-- There were no SQL repairs in the 50 requests run after repair logging was added, so `logs/sql_repairs.jsonl` does not exist yet. The reason for the earlier h04 repair is still unknown. The repair logger has been tested only with scripted fake models.
+- The reason for the earlier h04 repair is still unknown, because it happened before repair logging was added. The repair logger has been tested only with scripted fake models.
 
 <!-- BEGIN phase5_rewrite_experiment -->
 ### Query rewrite experiment (dev policy questions p01 to p20, retrieval only)
@@ -638,6 +640,8 @@ Gold queries wrongly blocked by the SQL guardrail: 0 of 26.
 Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
 <!-- END dev_after_fixes -->
 
+How to read the partial run above. The line "dev 10 ({'data': 15, ...})" shows the planned route counts next to the 10 questions that finished. "Answers the verifier changed 1/10" is not the verifier catching a model mistake. On q10 the SQL agent's explanation step hit the daily quota, the raw API error text became the answer, and the verifier removed the 3 sentences of that text that contained numbers. That bug is fixed: the answer is now a safe message plus the SQL rows, the run is marked `explanation_failed`, and the error text goes to the trace log only (test: `tests/test_explanation_failure.py`). The saved record of this run still shows the old behaviour.
+
 
 ## Dev fixes and eval v2: status (read this)
 
@@ -649,7 +653,7 @@ What was done:
 - **Router fix (dev only).** The router prompt now says to decide by what is asked (how many or which means data, what a rule says means policy, both only for a figure and a rule) and has 5 generic examples. None of the examples is an eval question, but one is a close paraphrase of the dev question p19, so p19 is no longer a clean test of this fix.
 - **RAG prompt fix (dev only).** The rule that made the model add "for a retail customer" is replaced by: use the passage's own words for who a rule applies to, and never add a customer type that neither the question nor the passage mentions.
 - **Query rewrite: built, tested, NOT adopted.** I fixed the adoption rule before running it: adopt only if dev MRR@5 rises by at least 0.03 and recall@5 does not drop. Result on the 20 dev policy questions: baseline recall 0.95 and MRR 0.850, rewritten query alone 0.90 and 0.739, original plus rewritten query fused 0.95 and 0.877. The gain of 0.027 is below the rule and p10 is still missed, so `QUERY_REWRITE` stays off. The p10 retrieval problem is not fixed.
-- **Not verified.** I re-ran the dev set after the fixes with the judge off (`python evals/run_evals.py --split dev --no-judge --label dev_after_fixes`). It stopped on the daily quota after 10 of 37 questions, all of them data questions. Those 10 say nothing about the fixes. Whether p07 and p19 are now routed to `policy`, and whether the "for a retail customer" habit is gone, is **unmeasured**. The fixes are covered only by unit tests of the prompts and the plumbing.
+- **Not verified.** I re-ran the dev set after the fixes with the judge off (`python evals/run_evals.py --split dev --no-judge --label dev_after_fixes`). It stopped on the daily quota after 10 of 37 questions, all of them data questions. All 10 were routed correctly after the router prompt change, but none of them is a policy question, so they do not test the fixes for p07, p19 or the "for a retail customer" habit. Those effects are **unmeasured**. The fixes are covered only by unit tests of the prompts and the plumbing. One of the 10 (q10) exposed a bug, described below the run's table.
 - **Exit code for incomplete runs.** If a run stops early (for example on a quota), `run_evals.py` now exits with code 2, so the nightly job fails instead of passing on the few questions that finished. A failed gate still exits with 1.
 - Tests: `pytest` gives 130 passed.
 
@@ -661,21 +665,21 @@ python evals/run_evals.py --questions evals/questions_v2.jsonl --label eval_v2 -
 python evals/token_report.py --records evals/runs/caching-stable_first.jsonl evals/runs/run-v2/records.jsonl
 ```
 
-Quota facts measured today: `gemini-3.5-flash-lite` allowed about 440 successful calls in the quota day before returning a daily 429. `gemini-3.6-flash` allowed 17. The v2 run needs about 80 answering calls plus about 16 judge calls. The nightly job needs about 30 calls a night, so on the free tier it can fail on quota on a day when the budget was spent on experiments.
+Quota fact: the API's own error message gives a free daily limit of 500 requests for `gemini-3.5-flash-lite` (`python scripts/doc_facts.py`). The nightly job also uses this quota, so on the free tier it can fail on a day when the budget was spent on experiments.
 
 
 ## Phase 6: API, UI and deployment (what was tested and what was not)
 
 What was built: a FastAPI app (`POST /ask`, `GET /health`, `GET /limits`, `GET /examples`), a Streamlit chat UI that shows route, trajectory, SQL, citations with passages, the verified flag, tokens, cost and latency for every answer, usage limits (5 live questions per visitor and 60 per day for the whole demo by default, counted per US Pacific day, with an automatic pause if Gemini reports its daily quota is used up), 20 pre-computed answers from real eval-v1 runs that cost no quota, a Dockerfile, and a deployment guide (`docs/DEPLOY.md`). `pytest` gives 155 passed.
 
-Checks that I ran:
+Checks that I ran (all found during development, raw output not saved, unless a test or command is named):
 
-- **Prices.** I compared all three rows of `config.PRICES` with the raw HTML of the official Gemini pricing page on 2026-10-25. They matched (gemini-3.5-flash-lite input 0.30, output 2.50, cached 0.03; gemini-3.6-flash and gemini-3.8-flash 0.75, 3.75, 0.075 until 2026-12-31). The same page says context caching is "Not available" on the free tier for gemini-3.5-flash-lite, which agrees with the explicit-caching result in Phase 5.
+- **Prices.** I compared all three rows of `config.PRICES` with the official Gemini pricing page on 2026-10-25, and they matched. The page also says context caching is not available on the free tier for gemini-3.5-flash-lite, which agrees with the explicit-caching result in Phase 5 (that result has a command: `python evals/explicit_cache_trial.py`).
 - **Database rebuilt from parquet.** The sales tables are committed as parquet files (7.4 MB). A database rebuilt from them gives the stored gold answer for all 36 gold queries of eval v1 and v2 (`tests/test_app_and_deploy_data.py`).
-- **Clean checkout.** I cloned the committed repository into an empty folder (no database, no vector index, no `.env`) and started it with the real `scripts/start.sh`. It rebuilt the database from parquet and the vector index from the PDFs in about 40 seconds (the embedding model was already in my local cache, so a fresh host will also spend time downloading it). The API answered `/health` with the database and index present. `/examples` returned 20 examples, `/limits` showed 5 and 60, and the Streamlit health check returned ok. `start.sh` and the Dockerfile have no carriage-return characters (checked, after adding a `.gitattributes` rule).
-- **Real error paths.** (1) With my shell missing the antivirus certificate settings, a live question returned a clear 502 `model_error` and the request was refunded (the session still had 5 questions). (2) With the settings, a live question hit the real Gemini daily quota: the API returned a clear 503 `model_quota_exhausted`, the demo paused itself, and a second visitor got a 429 with reason `paused` and the reset time (2026-10-26 07:00 UTC). The success path of a live question was not run in this test, because the quota was already used up. That path is covered by mocked tests and by the earlier phases.
-- **The UI in a real browser.** I opened the Streamlit app in a browser, opened pre-computed examples and checked the details panel. This found two display problems (large metric tiles cut off the numbers, long SQL did not wrap), which I fixed.
-- **Memory.** The agent graph alone used about 220 MB. After the first policy search (embedding model loaded, Chroma opened) the process used about 624 MB, and it stayed at 624 MB after four searches. An idle Streamlit server used about 71 MB. So the agent inside Streamlit needs roughly 700 MB in my measurement. Streamlit Community Cloud documents roughly 690 MB minimum and 2.7 GB maximum, so this is close to the minimum.
-- **Slow imports.** On my machine `import sentence_transformers` takes about 35 seconds (antivirus scanning), so a cold start is slow. Hosts will differ.
+- **Clean checkout.** I cloned the committed repository into an empty folder (no database, no vector index, no `.env`) and started it with the real `scripts/start.sh`. It rebuilt the database from parquet and the vector index from the PDFs. The API health check reported both present, the examples and limits endpoints answered, and the Streamlit health check returned ok. `.gitattributes` keeps `start.sh` and the Dockerfile with Unix line endings.
+- **Real error paths.** A live question with a network failure returned a 502 `model_error` and the request was refunded. A live question that hit the real Gemini daily quota returned a 503 `model_quota_exhausted`, the demo paused itself, and a second visitor got a 429 with reason `paused` and the reset time. The same behaviour is covered by mocked tests in `tests/test_limits_service_api.py`. The success path of a live question was not run in this check, because the quota was already used up.
+- **The UI in a real browser.** I opened the Streamlit app in a browser, opened pre-computed examples and checked the details panel. This found two display problems (large metric tiles cut off the numbers, long SQL did not wrap), which I fixed. The panel contents are covered by `tests/test_app_and_deploy_data.py`.
+- **Memory.** I measured the memory of the agent after its first policy search on my machine. It was close to the minimum that Streamlit Community Cloud documents, so a deployment there may be unstable.
+- **Slow imports.** On my machine, importing sentence-transformers was slow (antivirus scanning), so a cold start is slow. Hosts will differ.
 
 Not tested: building the Docker image (Docker Desktop was not running), the Streamlit Community Cloud deployment, the GitHub Actions workflow on GitHub (including a manual `workflow_dispatch` run), and Langfuse against a live account. Nothing is deployed yet, so there is no public URL.

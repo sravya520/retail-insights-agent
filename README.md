@@ -78,7 +78,7 @@ pip install -e .
 cp .env.example .env              # then put your key in GOOGLE_API_KEY
 ```
 
-The sales database and the vector index are rebuilt automatically on first start from files in the repository (`data/deploy/*.parquet` and `data/docs/*.pdf`). The first start downloads the small embedding model (about 130 MB).
+The sales database and the vector index are rebuilt automatically on first start from files in the repository (`data/deploy/*.parquet` and `data/docs/*.pdf`). The first start downloads the small embedding model.
 
 ```bash
 streamlit run app/streamlit_app.py          # chat UI (runs the agent inside the Streamlit process)
@@ -108,7 +108,7 @@ A public demo on a free Gemini key can be drained by a few visitors. So live que
 
 ## Results
 
-Every number below is copied from [docs/results.md](docs/results.md) by `scripts/sync_readme.py`. Each was produced by a script I ran. The model for every answering component is `gemini-3.5-flash-lite`. Details, commands and caveats for each number are in `docs/results.md`.
+The tables below are copied from [docs/results.md](docs/results.md) by `scripts/sync_readme.py`. Numbers in the text come from those tables or from `python scripts/doc_facts.py`, which reads only saved run files. The model for every answering component is `gemini-3.5-flash-lite`. Details, commands and caveats for each number are in `docs/results.md`.
 
 ### Eval v1 (frozen, git tag `eval-v1`)
 
@@ -144,18 +144,18 @@ Every number below is copied from [docs/results.md](docs/results.md) by `scripts
 
 How to read this honestly:
 
-- A perfect score on 20 questions is consistent with a true rate of about 85%. The lower bounds in the table show this.
+- A perfect score on a small set proves little. The table shows the 95% lower bounds: 84% for 20 of 20 and 72% for 10 of 10.
 - The verifier changed 0 of 52 real answers, so gate 1 shows the final answers are stable under the verifier's rules. It does not show that the verifier catches the model's mistakes. That is shown only by unit tests and a fault-injection test.
 - The judge was a different model for 15 of the 16 held-out answers and the answering model itself for everything else (the free daily quota of the other judge models ran out). Its relevance score of 5.00 on every answer is not credible.
 - Judge calibration against human labels is **pending**: it needs the 20 hand labels in `evals/human_labels.jsonl`.
 
 ### Eval v2 (pending)
 
-A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed in `da8dea5` before any run, after the router and prompt fixes were made using dev questions only. **It has not been run yet**, because the free daily quota ran out. The dev re-run after the fixes is also unfinished. So the effect of the fixes is **unmeasured**. The commands to finish are at the end of `docs/results.md`. Eval v1 stays untouched.
+A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed in `da8dea5` before any run and before the router and prompt fixes. Git history shows `da8dea5` comes before the fix commit `83cea5a`. The fixes were made using dev questions only. **It has not been run yet**, because the free daily quota ran out. The dev re-run after the fixes is also unfinished. So the effect of the fixes is **unmeasured**. The commands to finish are at the end of `docs/results.md`. Eval v1 stays untouched.
 
 ### Token economics
 
-Per route, on the 20 held-out questions, at paid-tier list prices (the free tier bills nothing). The prices were checked against the raw official Gemini pricing page on 2026-10-25. Thinking tokens are billed as output.
+Per route, on the 20 held-out questions, at paid-tier list prices (the free tier bills nothing). The prices in `config.PRICES` were compared with the official Gemini pricing page on 2026-10-25 (found during development, raw output not saved). Thinking tokens are billed as output.
 
 <!-- BEGIN sync:tokens_route -->
 | Route | Requests | LLM calls per query | Avg input tokens | Avg output tokens | Avg total tokens | Cost per query | Cost per 1,000 queries |
@@ -178,7 +178,7 @@ Share of tokens spent on the schema and on retrieved context:
 | Retrieved policy context (5 passages in every RAG call) | 2664 | 11.2% | 7.7% |
 <!-- END sync:tokens_share -->
 
-Output tokens (mostly thinking) are about 79% of the cost, so the biggest lever is thinking effort, not the prompt.
+Output tokens are 79.1% of the cost in this run (`python scripts/doc_facts.py`), so the biggest lever is thinking effort, not the prompt.
 
 ### The caching finding
 
@@ -202,7 +202,7 @@ I restructured the prompts so the long, stable part (instructions, schema, few-s
 | 4 | 894 | 0 | 1.21 |
 <!-- END sync:caching_probe -->
 
-The prompts are far below the minimum token counts the caching docs list, and Gemini explicit caching was refused:
+Gemini explicit caching was refused. The API reports a 1,024-token minimum and a free-tier storage limit of 0:
 
 <!-- BEGIN sync:explicit_cache -->
 | Model | Prompt | Prompt tokens | Result |
@@ -212,7 +212,7 @@ The prompts are far below the minimum token counts the caching docs list, and Ge
 | `gemini-3.5-flash-lite` | padded prompt (synthetic: schema repeated once) | 1465 | cache NOT created: ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model gemini-3.5-flash-lite: limit=0, requested=1468', 'status': 'RESOURCE_EXHAUSTED'}} |
 <!-- END sync:explicit_cache -->
 
-The small cost and latency difference between the two layouts is not a caching effect. Input tokens were almost identical, and the difference is output-token and latency noise. Even perfect input caching could save at most about 19% of the cost, because input is only about a fifth of it. One more disclosure: the question-first baseline was applied to the router and SQL prompts only, because a patch of mine silently missed the RAG prompt. That does not change the conclusion.
+The small cost and latency difference between the two layouts is not a caching effect. Input tokens were almost identical, and the difference is output-token and latency noise. Even perfect input caching could save at most 18.8% of the cost (`python scripts/doc_facts.py`). One more disclosure (found during development, raw output not saved): the question-first baseline was applied to the router and SQL prompts only, because a patch of mine silently missed the RAG prompt. That does not change the conclusion.
 
 ### Pre-computed examples in the demo
 
@@ -222,14 +222,14 @@ The small cost and latency difference between the two layouts is not a caching e
 
 - **The policy documents are synthetic.** The system has never seen real company policies. The sales data covers 2009 to 2011 only.
 - **The eval sets are small.** 20 held-out questions and 37 dev questions. Route groups have 4 to 6 questions. Confidence intervals are wide. The dev numbers are optimistic. Dev both and out-of-scope sets have one question each.
-- **The model is not deterministic.** The model ignores temperature 0. The same SQL question gave the gold answer in two runs and a different answer in a third. Single-run accuracy has noise I have not measured.
+- **The model is not deterministic.** The model ignores temperature 0. The same 10 held-out SQL questions scored 10 of 10, 10 of 10 and 9 of 10 in three runs (`python scripts/doc_facts.py`). Single-run accuracy has noise I have not measured.
 - **Self-judging.** Most dev answers were scored by the answering model. Judge scores are lenient and not yet calibrated against human labels.
 - **The verifier is narrow.** It checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words. It allows numbers that appear in the cited clause or in the question.
-- **Known weaknesses.** One policy question (p10) still misses its gold clause. Two dev policy questions were routed to the wrong path before the router fix, whose effect is unmeasured. The RAG prompt used to add "for a retail customer" to answers (judged unsupported); the fix is unmeasured.
-- **Free tier limits.** The answering model's free quota allowed about 440 calls in one day. Latency swings with API load. Live demo answers take roughly 10 to 25 seconds. Explicit context caching is not available on the free tier.
-- **Prices** in `config.PRICES` were checked on 2026-10-25 and will change. Two of the models listed double in price on 2027-01-01.
-- **Memory.** The agent plus the embedding model needs about 700 MB in my local measurement. That is close to the documented minimum of Streamlit Community Cloud, so a deployment may be unstable there.
-- **Not tested here:** the Dockerfile, the GitHub Actions nightly job on GitHub itself, Langfuse against a live account, and the Streamlit Cloud deployment. A clean clone was started locally with `scripts/start.sh`. See `docs/DEPLOY.md` and the Phase 6 section of `docs/results.md`.
+- **Known weaknesses.** One policy question (p10) still misses its gold clause. If the SQL agent's explanation step fails, the answer is a safe message plus the result rows instead of a written explanation. Two dev policy questions were routed to the wrong path before the router fix, whose effect is unmeasured. The RAG prompt used to add "for a retail customer" to answers (judged unsupported); the fix is unmeasured.
+- **Free tier limits.** The API's own error message gives a free limit of 500 requests a day for the answering model (`python scripts/doc_facts.py`). Latency swings with API load. Explicit context caching is not available on the free tier.
+- **Prices** in `config.PRICES` were taken from the official pricing page on 2026-10-25 and will change.
+- **Memory.** The agent plus the embedding model came close to the documented minimum memory of Streamlit Community Cloud on my machine (found during development, raw output not saved), so a deployment there may be unstable.
+- **Not tested here:** the Dockerfile, the GitHub Actions nightly job on GitHub itself, Langfuse against a live account, and the Streamlit Cloud deployment. A clean clone was started locally with `scripts/start.sh` (found during development, raw output not saved). See `docs/DEPLOY.md` and the Phase 6 section of `docs/results.md`.
 
 ## What I would do next
 
