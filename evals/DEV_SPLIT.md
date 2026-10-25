@@ -16,3 +16,9 @@ never used to tune anything. Every eval file has a `split` field (`dev` or `held
 
 Phase 4 adds new held-out policy, data, mixed and out-of-scope questions, written without looking at model output.
 Reported metrics are split into dev and held-out. The held-out numbers are the ones to trust.
+
+## Status after Phase 4
+
+`evals/questions.jsonl` holds all 57 questions with a `split` field. Held-out: h01 to h20 (committed in
+`fc2973aff48267cec53ede2965e2f8e6c8f708f0` before any run). Dev: q01 to q15, p01 to p20, b01 and o01.
+No prompt, retrieval setting or guardrail was changed after the held-out results were seen.

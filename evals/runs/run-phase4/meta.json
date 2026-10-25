@@ -1,0 +1,40 @@
+{
+ "calls": {
+  "total": 206,
+  "judge": 54,
+  "answering": 152,
+  "failed": 2,
+  "by_node": {
+   "combiner": 7,
+   "judge": 54,
+   "rag_agent": 31,
+   "router": 57,
+   "sql_agent.explain": 28,
+   "sql_agent.repair": 1,
+   "sql_agent.write": 28
+  }
+ },
+ "stop_reason": "",
+ "log_start": 83,
+ "total": 57,
+ "route_counts": {
+  "heldout": {
+   "data": 6,
+   "policy": 6,
+   "both": 4,
+   "out_of_scope": 4
+  },
+  "dev": {
+   "data": 15,
+   "policy": 20,
+   "both": 1,
+   "out_of_scope": 1
+  }
+ },
+ "judge_models_dead": [
+  "gemini-3.6-flash",
+  "gemini-3.7-flash"
+ ],
+ "completed": 57,
+ "model": "gemini-3.5-flash-lite"
+}

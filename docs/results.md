@@ -9,6 +9,7 @@ Every number below was produced by the command shown next to it. Sections betwee
 | Retrieval comparison (Phase 1) | No Gemini model. Embeddings `BAAI/bge-small-en-v1.5`, reranker `cross-encoder/ms-marco-MiniLM-L-6-v2` | Runs locally. |
 | RAG example answers (Phase 1) | `gemini-3.5-flash-lite`, RAG thinking `medium` | Run before the cache existed. |
 | SQL accuracy (Phase 2) | `gemini-3.5-flash-lite`, SQL thinking `low` | Cache off. |
+| Phase 4 evaluation (all components, run `run-phase4`) | `gemini-3.5-flash-lite` for router, SQL agent, RAG agent and combiner. Judge: `gemini-3.6-flash` for 15 held-out answers, `gemini-3.5-flash-lite` for the other 37 | Cache off. One model for every answering component. |
 | Graph example runs (Phase 3) | `gemini-3.5-flash-lite` for router (low), SQL agent (low), RAG agent (medium), combiner (medium) | Cache on, so some calls in the examples came from cache. |
 
 Nothing in this file was produced by `gemini-3.8-flash`. Its calls early in Phase 1 were discarded. Phase 4 will rerun every component on one model, so the numbers can be compared.
@@ -343,3 +344,86 @@ Known limits of the verifier (not fixed):
 - `verified` is `True` when nothing had to be removed. If every sentence is removed the answer becomes a fixed fallback message. For out of scope questions `verified` is `None` because no answer text is checked.
 - The router and the whole graph are only tested on 5 real questions so far. There are no router or route-accuracy numbers until Phase 4.
 - The Phase 2 SQL accuracy (14/15) was measured before the Phase 3 SQL guardrail that rejects constants in the SELECT list and before the thinking and cache changes. I did not re-run it, to save API calls. Phase 4 reruns it.
+
+<!-- BEGIN phase4_eval -->
+### Phase 4 evaluation (run `run-phase4`)
+
+Status: **COMPLETE**. Command: `python evals/run_evals.py`. Held-out questions were committed before any run in commit `fc2973aff48267cec53ede2965e2f8e6c8f708f0`.
+
+- Answering model for every component: `gemini-3.5-flash-lite` (router low, SQL low, RAG medium, combiner medium thinking). LLM cache: **off**.
+- Judge: `gemini-3.5-flash-lite` scored 37, `gemini-3.6-flash` scored 15. By split: heldout: 1 by `gemini-3.5-flash-lite`, 15 by `gemini-3.6-flash`; dev: 36 by `gemini-3.5-flash-lite`, 0 by `gemini-3.6-flash`. Judge models that ran out of free daily quota during the run: `gemini-3.6-flash`, `gemini-3.7-flash`. Some items were self-judged (the answering model scored its own answers), which can inflate scores. See the limits below.
+- Real API calls in this run: **206** (152 answering, 54 judge). By node: {'combiner': 7, 'judge': 54, 'rag_agent': 31, 'router': 57, 'sql_agent.explain': 28, 'sql_agent.repair': 1, 'sql_agent.write': 28}. Failed calls: 2.
+- Questions: heldout 20 ({'data': 6, 'policy': 6, 'both': 4, 'out_of_scope': 4}), dev 37 ({'data': 15, 'policy': 20, 'both': 1, 'out_of_scope': 1}).
+
+**Held-out is the headline. Dev numbers are optimistic because the system was tuned on those questions.**
+
+#### Gates (must pass)
+
+| Gate | Result | Detail |
+|---|---|---|
+| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 16/16, dev 36/36 |
+| All out of scope questions refused | PASS | heldout 4/4, dev 1/1 |
+| SQL guardrail blocks every unsafe query | PASS | 51/51 unsafe queries blocked (`evals/unsafe_sql.json`, no model involved) |
+
+Gate 1 uses the verifier's own rules, so it shows the verifier output is stable. It does not prove an answer is true.
+Violating ids: heldout none, dev none. Gate 2 misses: heldout none, dev none.
+
+#### Observations
+
+| Metric | Held-out | Dev |
+|---|---|---|
+| Router accuracy (route matches expected) | 20/20 = 100% (95% CI low 84%) | 35/37 = 95% |
+| Trajectory accuracy (exact node sequence) | 20/20 = 100% (95% CI low 84%) | 35/37 = 95% |
+| SQL execution accuracy (data and both questions, 0.5% tolerance) | 10/10 = 100% (95% CI low 72%) | 15/16 = 94% |
+| Retrieval recall@5 (policy and both questions, end to end) | 10/10 = 100% (95% CI low 72%) | 20/21 = 95% |
+| Refusal rate on out of scope questions | 4/4 = 100% (95% CI low 51%) | 1/1 = 100% |
+| Judge faithfulness, mean 1 to 5 | 4.94 (n=16) | 4.92 (n=36) |
+| Judge answer relevance, mean 1 to 5 | 5.00 (n=16) | 5.00 (n=36) |
+| Judge says faithful (faithfulness 4 or 5) | 100% | 100% |
+| Answers the verifier changed | 0/16 | 0/36 |
+| Sentences removed (number / citation) | 0 / 0 | 0 / 0 |
+| Median wall time per question (s, includes pacing gaps) | 10.4 | 11.2 |
+
+Most common wrong paths (both splits):
+
+- 2x expected router > rag_agent > combiner > verifier | got router > sql_agent > rag_agent > combiner > verifier
+
+Gold queries wrongly blocked by the SQL guardrail: 0 of 26.
+
+Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
+<!-- END phase4_eval -->
+
+
+## Phase 4: reading the evaluation above
+
+What was built (all run by `python evals/run_evals.py`, with `--report` to rebuild the tables from saved records):
+
+- `evals/questions.jsonl`: 57 questions, each with expected route, expected trajectory and gold answer (data) or gold citations (policy). **Held-out: 20 questions** (6 data, 6 policy, 4 both, 4 out of scope). **Dev: 37 questions** (15 data, 20 policy, 1 both, 1 out of scope). The dev both and out of scope sets have only one question each because I only had one of each from earlier phases, so dev numbers for those routes mean nothing.
+- The held-out questions and the dev set were committed in `fc2973aff48267cec53ede2965e2f8e6c8f708f0` before any eval run. I wrote the held-out questions from the policy documents and the database schema only. No model output was seen. Gold answers for data questions come from running my gold SQL on the database.
+- `src/ria/eval_metrics.py`: router, trajectory, SQL, retrieval, refusal and verifier metrics, the three gates, and the human-label and agreement logic. `src/ria/judge.py`: the judge with a fixed 1 to 5 rubric. `evals/unsafe_sql.json`: 51 unsafe queries for the guardrail gate.
+- Records of every question are saved in `evals/runs/run-phase4/records.jsonl`. The run stops cleanly and can resume if a daily quota runs out. It did not run out for the answering model.
+- Tests: `pytest` gives 101 passed (command: `pytest`).
+
+Real API calls: **206** in the run (152 answering, 54 judge). Two of the 54 judge calls failed on the daily quota of the first two judge models. A smoke test with 2 questions before the run used 8 more calls and is not in the 206.
+
+### Gates
+
+All three gates passed. Read gate 1 with care. The verifier changed **0 of 52** real answers, so there was nothing for it to remove. Gate 1 therefore shows that the final answers are stable under the verifier's rules, and not that the verifier catches mistakes in practice. Its removal behaviour is shown only by unit tests and by the injected-fault test in Phase 3. This run gives no real example of the model producing an unsupported number or citation after the Phase 3 fixes. The human-label sample therefore has no verifier-changed answers.
+
+### SQL guardrail check after the constant rule
+
+- The constant guardrail blocked **0 of the 26** gold queries (15 dev, 11 held-out gold queries including the data part of the both questions). The q15 labels `'Q1'` to `'Q4'` were never blocked, because they sit inside a `CASE` and are not a bare constant.
+- The rule did block a plain string label such as `SELECT 'Germany' AS country, SUM(revenue) ...`, which is legitimate. As you asked, I narrowed the rule to numeric constants in the top-level SELECT list. Tests cover both cases: string labels and CASE labels are allowed, and `28 AS window_days` and `SELECT 42` are rejected.
+- Scores: before the guardrail (Phase 2, 15 dev data questions) 14/15. After the guardrail and the narrowing (this run, same 15 questions) 14/15. The same question fails both times: q15, where the agent returns the labels `'Q1'` to `'Q4'` and the gold has `1` to `4`. The revenue numbers are identical. I kept the comparison strict.
+- One query in the run (held-out h04) needed the one repair attempt and then passed. I did not record why the first query was rejected, so I cannot say whether the guardrail caused it. I should log the repair reason in the next phase.
+
+### What the numbers do and do not show
+
+- **Held-out is 100% on every metric, but the sets are small.** The 95% lower bounds are 84% for 20 questions and 72% for 10. A perfect score on 20 questions is consistent with a true rate of about 85%. My held-out questions may also be easier than real user questions, because they are clean, single-topic and in plain English.
+- **Two real router errors, both on dev questions.** p07 ("Does the extended Christmas returns period also apply to business accounts?") and p19 ("What happens to my loyalty points if I return something I bought?") were routed to `both` instead of `policy`. The system then ran an unneeded SQL query. The p07 answer starts with an irrelevant sentence about return counts by country. This is the only wrong trajectory in the run.
+- **Retrieval:** p10 still misses its gold clause (Warranty 5.2), as in Phase 1. Every other policy and both question retrieved a gold clause in its top 5.
+- **The judge is lenient and mostly self-judging.** The judge gave answer relevance 5 to every answer, including p07 with its irrelevant sentence, so the relevance mean of 5.00 is not credible. For the held-out split, 15 of 16 answers were judged by `gemini-3.6-flash` and 1 by the answering model. For the dev split, all 36 were judged by the answering model, because `gemini-3.6-flash` and `gemini-3.7-flash` ran out of free daily quota. Self-judging can inflate scores, so the dev judge scores are weak evidence. Temperature 0 was requested, but `gemini-3.5-flash-lite` uses fixed sampling settings and ignores it, so its scores are not guaranteed to repeat.
+- **Calibration is pending.** The judge's agreement with human labels is not computed. See `evals/HUMAN_LABELS.md`.
+- **My own prompt adds an unsupported phrase.** All faithfulness scores below 5 come from "For a retail customer, ..." added by the RAG prompt rule to answers where the question did not say that (held-out h11, dev p14 and p15) and from one rounding note (q04). That phrase is not in the cited passage. I did not change the prompt, because h11 is a held-out question and fixing the prompt after seeing it would make held-out no longer held-out.
+- The policy `gold_text` field is not used by any metric. Policy answers are scored by gold citation recall and the judge only, so a policy answer with the right citations and a wrong statement would not be caught except by the judge.
+- Wall times include the 4.5 second pacing gaps, so they are not model latency. Phase 5 reports per-call latency.

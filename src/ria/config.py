@@ -15,8 +15,11 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # Thinking level per role (Gemini docs: gemini-3.5-flash-lite accepts minimal, low, medium, high; default minimal).
 # Roles not listed use the model default. Router and SQL agent use "low" for speed. The RAG agent uses "medium"
 # because the lighter model at its default (minimal) wrongly said "not covered" on a question it should answer.
-THINKING_LEVELS = {"router": "low", "sql": "low", "rag": "medium"}
+THINKING_LEVELS = {"router": "low", "sql": "low", "rag": "medium", "judge": "medium"}
 LLM_TEMPERATURE = 0.0
+# LLM judge (Phase 4). Prefer a model different from the answering model. The pool falls back to the next
+# model when one runs out of free daily quota. The last entry is the answering model itself (self-judging).
+JUDGE_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", GEMINI_MODEL]
 # Local LLM response cache for development. One flag: set RIA_LLM_CACHE=0 (or this to False) to turn it off.
 # Default is ON (tests, examples). Final evals and latency runs must turn it OFF.
 LLM_CACHE_ENABLED = os.getenv("RIA_LLM_CACHE", "1") != "0"

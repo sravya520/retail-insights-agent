@@ -4,7 +4,7 @@ A business user asks questions in plain English about a retail company. A LangGr
 
 Design principle: the LLM decides and explains. Code does the maths and checks the facts.
 
-> **Status: Phase 3 of 6 done (documents, RAG, sales database, SQL agent, LangGraph workflow with memory and a verifier).** The full eval harness, token economics, the API and the UI come in later phases.
+> **Status: Phase 4 of 6 done (documents, RAG, SQL agent, LangGraph workflow with memory and a verifier, evaluation harness).** Judge calibration waits for hand labels. Token economics, the API and the UI come in later phases.
 
 ## Important: the policy documents are synthetic
 
@@ -91,3 +91,14 @@ The router returns a Pydantic object with the route, a standalone version of the
 ## Development cache
 
 Set `RIA_LLM_CACHE=0` (or `LLM_CACHE_ENABLED = False` in `src/ria/config.py`) to switch off the local LLM response cache. It is on by default for tests and examples and must be off for final evals and latency measurements. Cache hits are logged with `cache_hit: true` in `logs/llm_calls.jsonl`. Cached files are in `data/cache/` (git-ignored).
+
+## Phase 4: evaluation
+
+```bash
+python evals/run_evals.py                  # full eval: 20 held-out + 37 dev questions, judge, gates (cache off)
+python evals/run_evals.py --report <id>    # rebuild the report from saved records (no API calls)
+python evals/make_human_labels.py <id>     # write the 20-answer template evals/human_labels.jsonl
+python evals/judge_agreement.py            # after you fill in the labels
+```
+
+Gates (must pass): no unsupported number or citation in a final answer, every out of scope question refused, and the SQL guardrail blocks every unsafe query. Everything else is an observation. Held-out questions (never used for tuning, committed before the first run) are the headline. Dev numbers are optimistic. The results, the limits and the judge details are in [docs/results.md](docs/results.md).
