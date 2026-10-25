@@ -544,10 +544,11 @@ What was built:
 - **Reports**: `evals/token_report.py` (section "Token economics"), `evals/caching_experiment.py` (section "Caching experiment"), `evals/explicit_cache_trial.py` (section "Explicit context caching trial").
 - **Nightly job** `.github/workflows/nightly-eval.yml`: installs, builds the vector index and the DuckDB database, runs the offline tests, then runs a fixed 10-question subset (`evals/nightly_subset.json`: 3 data, 3 policy, 2 both, 2 out of scope, all from the v1 held-out set) on the real model with the cache off, no judge and no write to this file. The job fails if a test fails or a gate fails. I cannot run GitHub Actions from here (this folder has no remote). What I did run: the YAML parses, the exact eval command ran locally on all 10 questions (10 of 10 questions answered, all three gates passed, exit code 0, 30 real API calls), and a test (`tests/test_nightly_gate.py`) proves that an answered out of scope question gives exit code 1. The Hugging Face model download and the dataset download steps in the workflow are untested in CI.
 - Eval v1 is tagged `eval-v1` and its results section is frozen. The code refuses to overwrite it.
-- Tests: `pytest` gives 118 passed.
+- Tests: `pytest` gives 118 passed at the end of the core Phase 5 work (see the next section for the current count).
 
 ### Reading the caching experiment
 
+- **Correction found after the experiment ran.** The question-first baseline layout was applied to the router and the SQL write prompts only. The RAG prompt was not switched, because a patch of mine silently did not apply, so the RAG calls were identical in both runs (average input 530 and 532 tokens). I fixed this afterwards and did not re-run the experiment, to save quota. The conclusion does not depend on it: no prompt reached a size where caching can trigger, and the RAG prompt is about 530 tokens in either layout.
 - **Caching did not trigger on this model.** Cached tokens were 0 in both layouts and 0 in the identical-prompt probe (the same 894-token SQL prompt sent 4 times in a row). The SQL prompt is far smaller than the minimum the caching docs list for implicit caching on the newer Flash models (4,096 tokens on `gemini-3.6-flash`). The docs give no minimum for `gemini-3.5-flash-lite`. My prompts are 150 to 900 tokens.
 - **Explicit caching is blocked in two ways.** The API refuses to cache the SQL prompt because it has 879 tokens and the minimum is 1,024. A padded prompt that passes the minimum is refused too, because the free tier has a cached storage limit of 0 for this model. So explicit caching is not possible here without a paid plan, and a longer prompt.
 - **The before and after difference is not a caching effect.** Input tokens are almost the same in both layouts (23,882 and 23,839 tokens, input cost $0.007165 and $0.007152). The 4.7% lower cost per query in the second run comes from fewer output tokens (11,494 and 10,823), which are mostly thinking tokens and vary from run to run. The latency difference has the same cause plus one 22.8 second outlier in the first run. I would not claim any improvement from the prompt layout.
@@ -561,3 +562,103 @@ What was built:
 - The schema description is 24% of all input tokens (17% of all tokens). The retrieved policy context is 11% of input tokens. The few-shot examples are 9%. Output tokens (thinking included) are 31% of all tokens.
 - Route groups hold 4 to 6 requests each, so the per-route numbers are rough. The token report is run again at the end of this phase on a larger set (see the v2 section).
 - There were no SQL repairs in the 50 requests run after repair logging was added, so `logs/sql_repairs.jsonl` does not exist yet. The reason for the earlier h04 repair is still unknown. The repair logger has been tested only with scripted fake models.
+
+<!-- BEGIN phase5_rewrite_experiment -->
+### Query rewrite experiment (dev policy questions p01 to p20, retrieval only)
+
+Command: `python evals/rewrite_experiment.py`. Model for the rewrite: `gemini-3.5-flash-lite` (thinking low). LLM cache on (dev experiment).
+Decision rule written before the run: adopt the fused search only if MRR@5 rises by at least 0.03 and recall@5 does not drop.
+
+| Variant | Recall@5 | MRR@5 |
+|---|---|---|
+| baseline | 0.95 | 0.850 |
+| rewrite | 0.90 | 0.739 |
+| fused | 0.95 | 0.877 |
+
+**Verdict: DO NOT ADOPT (rule not met).** Each rewrite call averaged 92 input and 7 output tokens ($0.000045, 0.9 s median) over 20 real calls.
+
+Questions whose gold rank changed between baseline and fused (rank 1 is best, None means not in the top 5):
+
+- p01 (baseline 2 -> fused 3): How many days do I have to return an item if I just changed my mind? | rewritten as: return policy timeframe change of mind
+- p03 (baseline 1 -> fused 5): My vase broke in the post. How long do I have to report it and what proof do you need? | rewritten as: broken item delivery damage reporting time limit proof photo policy
+- p14 (baseline 2 -> fused 1): Who pays import duty on a parcel sent to France? | rewritten as: import duty responsibility France international shipping taxes fees
+- p16 (baseline 2 -> fused 1): What is the smallest first order a new trade account can place? | rewritten as: minimum first order trade account wholesale threshold
+- p19 (baseline 2 -> fused 1): What happens to my loyalty points if I return something I bought? | rewritten as: loyalty points return refund policy
+
+These are dev questions, so this result is optimistic. Whether it holds on unseen questions is measured on eval v2.
+<!-- END phase5_rewrite_experiment -->
+
+<!-- BEGIN dev_after_fixes -->
+### Evaluation dev_after_fixes (run `run-dev-after-fixes`)
+
+Status: **PARTIAL: 10 of 37 questions finished (stopped on error: Gemini call failed (GoogleRateLimitError): Error calling model 'gemini-3.5-flash-lite' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota)**. Command: `python evals/run_evals.py` with questions from `questions.jsonl`. These held-out questions were committed before any run, in commit `fc2973aff48267cec53ede2965e2f8e6c8f708f0`.
+
+- Answering model for every component: `gemini-3.5-flash-lite` (router low, SQL low, RAG medium, combiner medium thinking). LLM cache: **off**.
+- Judge: no items were judged. By split: heldout: none; dev: none. Judge models that ran out of free daily quota during the run: none. The judge was not used in this run.
+- Real API calls in this run: **31** (31 answering, 0 judge). By node: {'router': 11, 'sql_agent.explain': 10, 'sql_agent.write': 10}. Failed calls: 2.
+- Questions: heldout 0 ({'data': 0, 'policy': 0, 'both': 0, 'out_of_scope': 0}), dev 10 ({'data': 15, 'policy': 20, 'both': 1, 'out_of_scope': 1}).
+
+**Held-out is the headline. Dev numbers are optimistic because the system was tuned on those questions.**
+
+#### Gates (must pass)
+
+| Gate | Result | Detail |
+|---|---|---|
+| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 0/0, dev 10/10 |
+| All out of scope questions refused | PASS | heldout 0/0, dev 0/0 |
+| SQL guardrail blocks every unsafe query | PASS | 51/51 unsafe queries blocked (`evals/unsafe_sql.json`, no model involved) |
+
+Gate 1 uses the verifier's own rules, so it shows the verifier output is stable. It does not prove an answer is true.
+Violating ids: heldout none, dev none. Gate 2 misses: heldout none, dev none.
+
+#### Observations
+
+| Metric | Held-out | Dev |
+|---|---|---|
+| Router accuracy (route matches expected) | n/a | 10/10 = 100% |
+| Trajectory accuracy (exact node sequence) | n/a | 10/10 = 100% |
+| SQL execution accuracy (data and both questions, 0.5% tolerance) | n/a | 10/10 = 100% |
+| Retrieval recall@5 (policy and both questions, end to end) | n/a | n/a |
+| Not-covered questions answered "does not cover this" (policy docs lack the answer) | n/a | n/a |
+| Refusal rate on out of scope questions | n/a | n/a |
+| Judge faithfulness, mean 1 to 5 | n/a | n/a |
+| Judge answer relevance, mean 1 to 5 | n/a | n/a |
+| Judge says faithful (faithfulness 4 or 5) | None | None |
+| Answers the verifier changed | 0/0 | 1/10 |
+| Sentences removed (number / citation) | 0 / 0 | 3 / 0 |
+| Median wall time per question (s, includes pacing gaps) | n/a | 13.3 |
+| Answering cost per question (USD, paid-tier list prices, judge excluded) | n/a | $0.000867 |
+
+Most common wrong paths (both splits):
+
+- none
+
+Gold queries wrongly blocked by the SQL guardrail: 0 of 26.
+
+Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
+<!-- END dev_after_fixes -->
+
+
+## Dev fixes and eval v2: status (read this)
+
+**Eval v2 has NOT been run.** The free-tier daily quota of the answering model ran out on 2026-10-25. Eval v1 stays frozen and untouched.
+
+What was done:
+
+- **Eval v2 questions (committed first).** 20 fresh held-out questions in `evals/questions_v2.jsonl` (6 data, 6 policy, 4 both, 4 out of scope), committed in `da8dea57bf1a1c72b71afa0162abd9abc8c0f970` before any fix and before any run. They are meant to be harder than v1: casual wording, a subquery (orders over 500 pounds), a derived number (10 percent of a 1,500 pound order), two questions the policy documents do not cover (opening hours, instalments), and boundary out of scope questions. I wrote them knowing the dev failures, but without running them and without using any of their content in a fix. Gold answers for data questions come from running gold SQL on the database.
+- **Router fix (dev only).** The router prompt now says to decide by what is asked (how many or which means data, what a rule says means policy, both only for a figure and a rule) and has 5 generic examples. None of the examples is an eval question, but one is a close paraphrase of the dev question p19, so p19 is no longer a clean test of this fix.
+- **RAG prompt fix (dev only).** The rule that made the model add "for a retail customer" is replaced by: use the passage's own words for who a rule applies to, and never add a customer type that neither the question nor the passage mentions.
+- **Query rewrite: built, tested, NOT adopted.** I fixed the adoption rule before running it: adopt only if dev MRR@5 rises by at least 0.03 and recall@5 does not drop. Result on the 20 dev policy questions: baseline recall 0.95 and MRR 0.850, rewritten query alone 0.90 and 0.739, original plus rewritten query fused 0.95 and 0.877. The gain of 0.027 is below the rule and p10 is still missed, so `QUERY_REWRITE` stays off. The p10 retrieval problem is not fixed.
+- **Not verified.** I re-ran the dev set after the fixes with the judge off (`python evals/run_evals.py --split dev --no-judge --label dev_after_fixes`). It stopped on the daily quota after 10 of 37 questions, all of them data questions. Those 10 say nothing about the fixes. Whether p07 and p19 are now routed to `policy`, and whether the "for a retail customer" habit is gone, is **unmeasured**. The fixes are covered only by unit tests of the prompts and the plumbing.
+- **Exit code for incomplete runs.** If a run stops early (for example on a quota), `run_evals.py` now exits with code 2, so the nightly job fails instead of passing on the few questions that finished. A failed gate still exits with 1.
+- Tests: `pytest` gives 130 passed.
+
+To finish (after the quota resets at about 12:30 IST on 2026-10-26, midnight US Pacific):
+
+```bash
+python evals/run_evals.py --split dev --no-judge --label dev_after_fixes --resume run-dev-after-fixes
+python evals/run_evals.py --questions evals/questions_v2.jsonl --label eval_v2 --questions-commit da8dea57bf1a1c72b71afa0162abd9abc8c0f970 --resume run-v2
+python evals/token_report.py --records evals/runs/caching-stable_first.jsonl evals/runs/run-v2/records.jsonl
+```
+
+Quota facts measured today: `gemini-3.5-flash-lite` allowed about 440 successful calls in the quota day before returning a daily 429. `gemini-3.6-flash` allowed 17. The v2 run needs about 80 answering calls plus about 16 judge calls. The nightly job needs about 30 calls a night, so on the free tier it can fail on quota on a day when the budget was spent on experiments.

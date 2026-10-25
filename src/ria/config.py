@@ -15,7 +15,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # Thinking level per role (Gemini docs: gemini-3.5-flash-lite accepts minimal, low, medium, high; default minimal).
 # Roles not listed use the model default. Router and SQL agent use "low" for speed. The RAG agent uses "medium"
 # because the lighter model at its default (minimal) wrongly said "not covered" on a question it should answer.
-THINKING_LEVELS = {"router": "low", "sql": "low", "rag": "medium", "judge": "medium"}
+THINKING_LEVELS = {"router": "low", "sql": "low", "rag": "medium", "judge": "medium", "rewrite": "low"}
 LLM_TEMPERATURE = 0.0
 # LLM judge (Phase 4). Prefer a model different from the answering model. The pool falls back to the next
 # model when one runs out of free daily quota. The last entry is the answering model itself (self-judging).
@@ -35,6 +35,8 @@ PRICES = {
 }
 # Prompt layout: "stable_first" (production) or "question_first" (baseline used only by the caching experiment).
 PROMPT_LAYOUT = "stable_first"
+# Query rewrite before policy retrieval (adopted only if the dev experiment says it helps, see docs/results.md).
+QUERY_REWRITE = False
 LLM_MAX_ATTEMPTS = 5  # Tenacity: retry on 429 and 5xx only
 LLM_BACKOFF_MULTIPLIER = 4  # seconds; waits are random up to 4, 8, 16, 32 (free tier minute limits need ~40s)
 # Free tier allows 15 requests per minute per model. A small gap between calls avoids most 429s. Set 0 on a paid plan.

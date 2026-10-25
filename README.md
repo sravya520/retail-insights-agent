@@ -112,3 +112,7 @@ python evals/token_report.py           # tokens and cost per route, cost per 1,0
 ```
 
 Logs (git-ignored): `logs/llm_calls.jsonl` (every LLM call with tokens, latency and cost), `logs/traces.jsonl` (every request with totals), `logs/sql_repairs.jsonl` (why each SQL repair was needed). Prices are in `config.PRICES`. Langfuse is used only if `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Otherwise the local files are all there is. A GitHub Actions job (`.github/workflows/nightly-eval.yml`) runs the offline tests and a 10-question eval subset every night and fails if a gate fails (it needs the repository secret `GOOGLE_API_KEY`).
+
+## Eval versions
+
+Eval v1 (git tag `eval-v1`) is frozen. Eval v2 is a fresh held-out set (`evals/questions_v2.jsonl`, committed in `da8dea5` before any run). Status and the commands to finish it are at the end of [docs/results.md](docs/results.md). `run_evals.py` exits 0 when all questions finished and all gates passed, 1 when a gate failed, and 2 when the run stopped early (for example a daily quota).

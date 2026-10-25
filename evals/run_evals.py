@@ -8,6 +8,8 @@ computes metrics per split, checks the gates, and writes docs/results.md.
   * If the daily quota runs out, the run stops cleanly, saves what it has and reports how far it got.
     Resume with:  python evals/run_evals.py --resume <run_id>
 
+Exit codes: 0 all questions finished and all gates passed, 1 a gate failed, 2 the run stopped early (for example a daily quota).
+
 Run: python evals/run_evals.py            (new run, v1 questions)
      python evals/run_evals.py --questions evals/questions_v2.jsonl --label eval_v2 --questions-commit <hash>
      python evals/run_evals.py --subset evals/nightly_subset.json --no-judge --no-write   (nightly CI job)
@@ -150,7 +152,7 @@ def build_report(run_id: str, records: list[dict], meta: dict, label: str = "eva
 Status: **{status}**. Command: `python evals/run_evals.py` with questions from `{Path(questions_path).name}`. These held-out questions were committed before any run, in commit `{commit}`.
 
 - Answering model for every component: `{config.GEMINI_MODEL}` (router low, SQL low, RAG medium, combiner medium thinking). LLM cache: **off**.
-- Judge: {judge_note}. By split: {judge_by_split}. Judge models that ran out of free daily quota during the run: {dead}. {"Some items were self-judged (the answering model scored its own answers), which can inflate scores. See the limits below." if self_judged else "The judge was a different model from the answering model."}
+- Judge: {judge_note}. By split: {judge_by_split}. Judge models that ran out of free daily quota during the run: {dead}. {"The judge was not used in this run." if not judge_counts else ("Some items were self-judged (the answering model scored its own answers), which can inflate scores. See the limits below." if self_judged else "The judge was a different model from the answering model.")}
 - Real API calls in this run: **{calls.get('total', 0)}** ({calls.get('answering', 0)} answering, {calls.get('judge', 0)} judge). By node: {calls.get('by_node', {})}. Failed calls: {calls.get('failed', 0)}.
 - Questions: heldout {len(splits['heldout'])} ({meta['route_counts']['heldout']}), dev {len(splits['dev'])} ({meta['route_counts']['dev']}).
 
@@ -175,6 +177,7 @@ Violating ids: heldout {g1['heldout'][2] or 'none'}, dev {g1['dev'][2] or 'none'
 {row('Trajectory accuracy (exact node sequence)', lambda r, b: fmt_ratio(m.trajectory_accuracy(r)[:2], b))}
 {row('SQL execution accuracy (data and both questions, 0.5% tolerance)', lambda r, b: fmt_ratio(m.sql_execution_accuracy(r), b))}
 {row('Retrieval recall@5 (policy and both questions, end to end)', lambda r, b: fmt_ratio(m.retrieval_recall_at_5(r), b))}
+{row('Not-covered questions answered "does not cover this" (policy docs lack the answer)', lambda r, b: fmt_ratio(m.not_covered_accuracy(r), b))}
 {row('Refusal rate on out of scope questions', lambda r, b: fmt_ratio(m.refusal_rate(r), b))}
 | Judge faithfulness, mean 1 to 5 | {jfmt(jm['heldout'], 'faithfulness')} | {jfmt(jm['dev'], 'faithfulness')} |
 | Judge answer relevance, mean 1 to 5 | {jfmt(jm['heldout'], 'relevance')} | {jfmt(jm['dev'], 'relevance')} |
@@ -212,6 +215,7 @@ def main() -> None:
     parser.add_argument("--label", default="eval_v2", help="results section name in docs/results.md (eval_v1 is frozen)")
     parser.add_argument("--questions-commit", default=HELDOUT_COMMIT, help="commit that added the questions, recorded in the report")
     parser.add_argument("--subset", help="JSON file with a list of question ids to run (nightly CI job)")
+    parser.add_argument("--split", choices=["heldout", "dev"], help="run only this split")
     parser.add_argument("--no-judge", action="store_true", help="skip the LLM judge (saves quota)")
     parser.add_argument("--no-write", action="store_true", help="do not write docs/results.md")
     args = parser.parse_args()
@@ -219,6 +223,8 @@ def main() -> None:
     config.LLM_CACHE_ENABLED = False  # final eval: cache OFF
     questions_path = Path(args.questions)
     questions = read_jsonl(questions_path)
+    if args.split:
+        questions = [q for q in questions if q["split"] == args.split]
     if args.subset:
         wanted = json.loads(Path(args.subset).read_text(encoding="utf-8"))
         questions = [q for q in questions if q["id"] in wanted]
@@ -269,7 +275,12 @@ def main() -> None:
     gates_failed = m.gate_unsafe_sql_blocked(json.loads((ROOT / "evals" / "unsafe_sql.json").read_text(encoding="utf-8")),
                                              get_schema(connect_readonly()))[0]
     gates_failed += m.gate_no_unsupported_content(records)[0] + m.gate_out_of_scope_refused(records)[0]
-    sys.exit(1 if gates_failed else 0)
+    if gates_failed:
+        sys.exit(1)  # a gate failed
+    if meta["completed"] < meta["total"]:
+        print(f"INCOMPLETE: {meta['completed']} of {meta['total']} questions finished ({meta['stop_reason']}). Exit code 2.")
+        sys.exit(2)  # the run stopped early (for example a daily quota). Not a pass.
+    sys.exit(0)
 
 
 if __name__ == "__main__":

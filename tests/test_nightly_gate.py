@@ -17,12 +17,14 @@ REFUSAL = ("I can only help with questions about Northwind Gifts sales data and 
            "I cannot help with that question.")
 
 
-def run_report(run_id: str, records: list[dict]) -> subprocess.CompletedProcess:
+def run_report(run_id: str, records: list[dict], subset: list[str] | None = None) -> subprocess.CompletedProcess:
     run_dir = ROOT / "evals" / "runs" / run_id
     run_dir.mkdir(parents=True, exist_ok=True)
     try:
         (run_dir / "records.jsonl").write_text("\n".join(json.dumps(r) for r in records) + "\n", encoding="utf-8")
-        return subprocess.run([sys.executable, "evals/run_evals.py", "--report", run_id, "--no-write", "--label", "gate_test"],
+        (run_dir / "subset.json").write_text(json.dumps(subset or ["h17"]), encoding="utf-8")
+        return subprocess.run([sys.executable, "evals/run_evals.py", "--report", run_id, "--no-write", "--label", "gate_test",
+                               "--subset", str(run_dir / "subset.json")],
                               cwd=ROOT, capture_output=True, text=True, timeout=120)
     finally:
         shutil.rmtree(run_dir, ignore_errors=True)
@@ -44,3 +46,11 @@ def test_answered_out_of_scope_question_fails_the_gate_with_exit_one():
     res = run_report("gate-test-bad", [bad])
     assert res.returncode == 1, res.stdout[-800:] + res.stderr[-800:]
     assert "FAIL" in res.stdout
+
+
+def test_incomplete_run_exits_two_even_when_the_finished_questions_pass():
+    """If the run stopped early (daily quota) the nightly job must not go green."""
+    ok = oos_record(REFUSAL, ["router", "refuse"], "out_of_scope")
+    res = run_report("gate-test-incomplete", [ok], subset=["h17", "h18"])  # h18 never finished
+    assert res.returncode == 2, res.stdout[-800:] + res.stderr[-800:]
+    assert "INCOMPLETE" in res.stdout

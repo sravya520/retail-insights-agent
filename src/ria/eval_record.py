@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 GOLD_FIELDS = ("id", "split", "question", "expected_route", "expected_trajectory", "ordered", "gold_answer",
-               "gold_citations", "gold_text")
+               "gold_citations", "gold_text", "expect_not_covered")
 
 
 def record_from_state(q: dict[str, Any], out: dict[str, Any]) -> dict[str, Any]:

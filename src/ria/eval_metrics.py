@@ -79,6 +79,15 @@ def refusal_rate(records: Iterable[Record]) -> tuple[int, int]:
     return sum(r.get("route") == "out_of_scope" and r.get("answer") == REFUSAL_MESSAGE for r in rs), len(rs)
 
 
+def not_covered_accuracy(records: Iterable[Record]) -> tuple[int, int]:
+    """Questions the policy documents do not cover (expect_not_covered). The answer must be the fixed
+    'does not cover this' sentence with no citation and no number, and the route must be policy."""
+    from ria.rag_agent import NOT_COVERED
+    rs = [r for r in records if r.get("expect_not_covered")]
+    ok = sum(1 for r in rs if r.get("route") == "policy" and NOT_COVERED in (r.get("answer") or "") and "[" not in (r.get("answer") or ""))
+    return ok, len(rs)
+
+
 def judge_means(records: Iterable[Record]) -> dict[str, Any]:
     judged = [r["judge"] for r in records if r.get("judge")]
     if not judged:

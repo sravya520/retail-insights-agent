@@ -78,6 +78,16 @@ class Retriever:
         # Chroma returns cosine distance. Similarity = 1 - distance.
         return [(i, 1.0 - d) for i, d in zip(res["ids"][0], res["distances"][0])]
 
+    def search_multi(self, queries: list[str], top_k: int = config.TOP_K) -> list[Hit]:
+        """Hybrid search for several phrasings of the same question. All BM25 and vector rankings are fused with RRF."""
+        n = config.CANDIDATES
+        rankings: list[list[str]] = []
+        for q in queries:
+            rankings.append([i for i, _ in self._bm25_ranking(q, n)])
+            rankings.append([i for i, _ in self._vector_ranking(q, n)])
+        fused = rrf_fuse(rankings)
+        return [Hit(self.by_id[i], s, "hybrid-multi") for i, s in fused[:top_k]]
+
     def search(self, query: str, mode: Mode = "hybrid", top_k: int = config.TOP_K,
                rerank: bool = False, rerank_pool: int = config.RERANK_POOL) -> list[Hit]:
         """Search. With rerank=True the top `rerank_pool` candidates are rescored and the best `top_k` kept."""

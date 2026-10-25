@@ -54,6 +54,19 @@ Routes:
   both         The question needs a figure from the sales data AND a rule from the policy documents.
   out_of_scope Anything else: weather, general knowledge, coding, opinions, other companies, chit-chat.
 
+Words such as returns, refunds, points, shipping, discount and customers appear in both the sales data and the policy
+documents. Decide by what is being asked:
+  * how many, how much, which, or a total over a period  ->  data
+  * what a rule says, how long, whether something is allowed, or whether a rule applies to some kind of customer  ->  policy
+  * choose both only when the question asks for a figure from the data AND, separately, a rule from the policy documents.
+
+Examples:
+  "How many orders were returned last June?"                       -> data
+  "Can I send back a pair of mittens I only wore once?"            -> policy
+  "Do trade accounts earn points on what they buy?"                -> policy
+  "What happens to points earned on something I then return?"      -> policy
+  "How many customers ordered twice, and how long is the warranty?" -> both
+
 Also write standalone_question: the new question rewritten so it can be understood without the chat history.
 If the new question is a follow-up (for example "And in December?"), use the history to fill in what is missing.
 If it is already complete, copy it unchanged.
