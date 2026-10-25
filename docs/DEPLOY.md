@@ -75,7 +75,7 @@ The workflow `.github/workflows/nightly-eval.yml` already has `workflow_dispatch
 4. Wait about 10 to 20 minutes. The first run downloads the dataset (45 MB) and the embedding model.
 5. A green run means the offline tests passed, all 10 questions finished and all three gates passed. A red run means a test or a gate failed, or the run stopped early (for example on a free-tier quota). The log says which. The report is attached to the run as an artifact.
 
-It then also runs every night at 01:30 UTC. It uses about 30 model calls a night. GitHub can switch off scheduled workflows in a repository that has had no activity for a long time.
+It then also runs every night at 01:30 UTC. The local dry run of the same command used 27 model calls (`evals/runs/nightly-local/meta.json`, local only). GitHub can switch off scheduled workflows in a repository that has had no activity for a long time.
 
 ## If Streamlit Community Cloud is not enough (untested alternatives)
 

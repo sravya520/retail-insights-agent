@@ -136,7 +136,7 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 | Fact | Status | Source |
 |---|---|---|
 | Nightly workflow on GitHub (`.github/workflows/nightly-eval.yml`, scheduled and manual) | **Untested.** It has never run on GitHub, because the repository is not on GitHub | `git remote -v` prints nothing |
-| The workflow's eval command run locally | 10 of 10 questions finished, all three gates passed, exit code 0, 30 model calls | Phase 5 section of `docs/results.md` |
+| The workflow's eval command run locally | 10 of 10 questions finished, all three gates passed, exit code 0, 27 model calls | Phase 5 section of `docs/results.md`; call count from `evals/runs/nightly-local/meta.json`, local only |
 | Exit codes (0 pass, 1 gate failed, 2 run stopped early) | Tested: 3 tests pass | `tests/test_nightly_gate.py`, part of `pytest` |
 | Offline test suite | 160 passed | `pytest`, run on 2026-10-25 |
 
@@ -201,4 +201,4 @@ The first version of this file listed 24 statements in `docs/results.md` and `RE
 
 Also added to `docs/results.md`, under the eval v1 block: "SQL execution accuracy, held-out: 10 of 10 on eval v1; two later runs on the same questions gave 10 of 10 and 9 of 10" (command: block 1). The frozen eval v1 block itself was not changed.
 
-What still has no repository command, by design: the statements marked "found during development, raw output not saved". They carry no numbers. The nightly dry run in the Phase 5 section of `docs/results.md` (10 of 10 questions, 30 calls) comes from a run folder that is git-ignored (`evals/runs/nightly-local/`), so it is local only.
+What still has no repository command, by design: the statements marked "found during development, raw output not saved". They carry no numbers. The nightly dry run in the Phase 5 section of `docs/results.md` (10 of 10 questions, 27 calls) comes from a run folder that is git-ignored (`evals/runs/nightly-local/`), so it is local only.
