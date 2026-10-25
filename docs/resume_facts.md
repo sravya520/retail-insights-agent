@@ -1,6 +1,6 @@
 # Resume facts: Retail Insights Agent
 
-Every line below comes from `docs/results.md`, from a file saved by a run, or from a command I ran on 2026-10-25. For each number the table gives what it measures, what it was measured on, and where it comes from. "NOT MEASURED" means there is no number yet. Commands marked "local only" read files that are git-ignored (`logs/`, `data/db/`), so they work on my machine but not in a fresh clone.
+Every line below comes from `docs/results.md`, from a file saved by a run, or from `python scripts/doc_facts.py` (which reads only saved run files and makes no API calls). For each number the table gives what it measures, what it was measured on, and where it comes from. "NOT MEASURED" means there is no number yet. Commands marked "local only" read files that are git-ignored (`logs/`, `data/db/`), so they work on my machine but not in a fresh clone.
 
 All model answers were produced by `gemini-3.5-flash-lite` unless a line says otherwise. The policy documents are synthetic.
 
@@ -30,7 +30,7 @@ Versions are the ones installed in my environment (command: `python -c "import i
 | streamlit | 1.66.1 | Chat UI | `app/streamlit_app.py` |
 | httpx | 0.28.1 | UI to API calls | `src/ria/ui_backend.py` |
 | python-dotenv, tzdata | 1.2.4, 2026.5 | Secrets from `.env`, US Pacific quota day | `config.py`, `limits.py` |
-| pytest | 9.1.1 | 155 offline tests | `tests/` |
+| pytest | 9.1.1 | 160 offline tests | `tests/` |
 
 Listed but not used: `requests` is in `requirements.txt` but no repository code imports it. `numpy` is not imported directly. `langfuse` is referenced in `tracing.py` but is not installed, so it never ran. GitHub Actions (`.github/workflows/nightly-eval.yml`) and Docker (`Dockerfile`) exist as files but never ran (see sections 10 and 11).
 
@@ -74,10 +74,10 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 |---|---|---|---|
 | Execution accuracy, held-out | **10 of 10** | The 10 eval v1 held-out questions that have a gold SQL answer (6 data, 4 both). Agent result must match gold within 0.5% | `python evals/run_evals.py`, run `run-phase4`, section "Eval v1" |
 | 95% lower bound for that score | 72% | Wilson interval for 10 of 10 | same report |
-| Same 10 questions, two later runs | 10 of 10, then **9 of 10** | Runs `caching-question_first` and `caching-stable_first`. In the second, question h14 added a filter `is_merchandise = TRUE` and returned 245,841.79 instead of the gold 679,179.41 | saved records `evals/runs/caching-*.jsonl`, checked by a command I ran |
+| Same 10 questions, two later runs | 10 of 10, then **9 of 10** | Runs `caching-question_first` and `caching-stable_first`. In the second, question h14 added a filter `is_merchandise = TRUE` and returned 245,841.79 instead of the gold 679,179.41 | `python scripts/doc_facts.py`, block 1 |
 | Execution accuracy, dev | 14 of 15 | Dev data questions q01 to q15. The miss (q15) returns quarter labels "Q1" to "Q4" instead of 1 to 4. The revenue numbers are identical | `python evals/sql_eval.py`, section "SQL agent execution accuracy" |
 | Execution accuracy, dev, in eval v1 | 15 of 16 | Dev data questions plus the dev mixed question | `python evals/run_evals.py`, section "Eval v1" |
-| Repairs needed in eval v1 | 1 (h04) | The first query failed and the one repair passed. The reason was not logged | same |
+| Repairs needed in eval v1 | 1 (h04) | The first query failed and the one repair passed. The reason was not logged | `python scripts/doc_facts.py`, block 5 |
 
 ## 6. Router and trajectory
 
@@ -85,7 +85,7 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 |---|---|---|---|
 | Router accuracy, held-out | **20 of 20** (95% lower bound 84%) | Eval v1 held-out questions | `python evals/run_evals.py`, section "Eval v1" |
 | Trajectory accuracy (exact sequence of agent steps), held-out | **20 of 20** (95% lower bound 84%) | same | same |
-| Router and trajectory accuracy, dev | 35 of 37 | Eval v1 dev questions. Both misses (p07, p19) were policy questions sent to the mixed path | same |
+| Router and trajectory accuracy, dev | 35 of 37 | Eval v1 dev questions. Both misses (p07, p19) were policy questions sent to the mixed path | section "Eval v1"; the ids from `python scripts/doc_facts.py`, block 5 |
 | Refusal of out-of-scope questions, held-out | 4 of 4 | same | same |
 
 ## 7. Verifier and guardrails
@@ -101,7 +101,9 @@ What the verifier blocks: a sentence with a number that is not in the SQL result
 | Real answers the verifier changed | 0 of 52 | All answered eval v1 questions | same |
 | Injected-fault test | 2 of 2 fake sentences removed | One made-up number (87%) and one fake citation (§9.9) added to a real answer | `python evals/graph_examples.py`, section "Graph example runs" |
 
-The bug found and fixed (invented constants): in a Phase 3 example run, the SQL agent wrote `SELECT COUNT(...), 28 AS return_window_days ...`. The 28 matched no data (the policy says 30 days), and the verifier accepted it because it sat in the SQL result. Two fixes followed. A guardrail now rejects numeric constants in the top-level select list (it was later narrowed so text labels like `'Germany' AS country` are still allowed). The router now splits a mixed question so each agent sees only its own part. Source: Phase 3 section of `docs/results.md`. The fix is covered by tests (`tests/test_phase2.py`, `tests/test_tracing.py`). The raw output of the run that showed the bug was not kept (see the last section).
+The bug found and fixed (invented constants). Found during development, raw output not saved. Found and fixed, covered by tests. In a Phase 3 example run the SQL agent added a constant column, `28 AS return_window_days`, to its query. The 28 matched no data (the policy says 30 days), and the verifier accepted it because it sat in the SQL result. Two fixes followed. A guardrail rejects numeric constants in the top-level select list (text labels like `'Germany' AS country` are still allowed). The router splits a mixed question so each agent sees only its own part. Tests: `tests/test_phase2.py` rejects `SELECT COUNT(*) AS n, 28 AS return_window_days FROM returns`, `tests/test_tracing.py` checks that a numeric constant triggers a logged repair, and `tests/test_graph.py` checks the split. Source: Phase 3 section of `docs/results.md`.
+
+A second bug found and fixed (error text as an answer). When the SQL agent's explanation step failed, the raw API error text became the answer (seen on q10 in run `run-dev-after-fixes`). Now the answer is a safe message plus the SQL rows, the run is marked `explanation_failed`, and the error text goes to the trace log only. Covered by `tests/test_explanation_failure.py`, which also checks that the verifier never sees the error text. Fixed in commit `388a006`.
 
 ## 8. Cost and tokens
 
@@ -117,9 +119,9 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 
 | Fact | Number | Measured on | Source |
 |---|---|---|---|
-| Share of cost from output tokens | 79.1% | Same 20 requests (23,839 input, 10,823 output tokens) | one-line command over `evals/runs/caching-stable_first.jsonl` and the prices, run on 2026-10-25 |
-| Thinking (reasoning) tokens | 7,771 of 10,823 output tokens (71.8%), 56.8% of cost | The 54 model calls of the same run | one-line command over `logs/llm_calls.jsonl` and `logs/traces.jsonl` (local only) |
-| Most cost saved if every input token were cached | 18.8% | Same 20 requests | same command as the 79.1% line |
+| Share of cost from output tokens | 79.1% | Same 20 requests (23,839 input, 10,823 output tokens) | `python scripts/doc_facts.py`, block 2 |
+| Thinking (reasoning) tokens | 7,771 of 10,823 output tokens (71.8%), 56.8% of cost | The 54 model calls of the same run | `python scripts/doc_facts.py`, block 4 (local only: reads `logs/`) |
+| Most cost saved if every input token were cached | 18.8% | Same 20 requests | `python scripts/doc_facts.py`, block 2 |
 | Schema description share of input tokens | 24.3% | Same 20 requests | `python evals/token_report.py` |
 | Retrieved policy context share of input tokens | 11.2% | Same 20 requests | same |
 | Prompt caching | **Did not trigger.** 0 cached tokens in both prompt layouts (23,882 and 23,839 input tokens) and 0 when the same 894-token prompt was sent 4 times in a row | Same 20 questions in two layouts | `python evals/caching_experiment.py` |
@@ -136,7 +138,7 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 | Nightly workflow on GitHub (`.github/workflows/nightly-eval.yml`, scheduled and manual) | **Untested.** It has never run on GitHub, because the repository is not on GitHub | `git remote -v` prints nothing |
 | The workflow's eval command run locally | 10 of 10 questions finished, all three gates passed, exit code 0, 30 model calls | Phase 5 section of `docs/results.md` |
 | Exit codes (0 pass, 1 gate failed, 2 run stopped early) | Tested: 3 tests pass | `tests/test_nightly_gate.py`, part of `pytest` |
-| Offline test suite | 155 passed | `pytest`, run on 2026-10-25 |
+| Offline test suite | 160 passed | `pytest`, run on 2026-10-25 |
 
 ## 11. Deployment status and links
 
@@ -145,7 +147,7 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 | GitHub URL | **None.** No remote is set up for this folder (`git remote -v` prints nothing) |
 | Demo URL | **Not deployed** |
 | Docker image | Not built. The Dockerfile is untested |
-| What was tested instead | A clean clone started with `scripts/start.sh` rebuilt the database and the vector index from committed files in about 40 seconds. Health checks for the API and the UI passed. Source: Phase 6 section of `docs/results.md` |
+| What was tested instead | A clean clone started with `scripts/start.sh` rebuilt the database and the vector index from committed files, and the API and UI health checks passed. Found during development, raw output not saved (Phase 6 section of `docs/results.md`) |
 
 ## 12. Limits and known weaknesses
 
@@ -157,47 +159,46 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 - Retrieval misses dev question p10 with every method.
 - The router sent 2 dev policy questions (p07, p19) to the mixed path. A prompt fix exists, but its effect is NOT MEASURED.
 - The RAG prompt in eval v1 added "for a retail customer" to answers where nobody asked (the judge flagged h11, p14 and p15). A prompt fix exists, but its effect is NOT MEASURED.
-- Free-tier quota: on 2026-10-25 the API's own quota error for `gemini-3.5-flash-lite` stated a limit of 500 requests per day (saved in `evals/runs/run-dev-after-fixes/records.jsonl`, question q10).
-- **Bug found while preparing this file (not fixed, because this task changes no code).** When the SQL agent's explanation step fails, the raw API error text becomes the answer. In the partial dev re-run (question q10, run `run-dev-after-fixes`), the quota error text reached the final answer, and the verifier removed 3 sentences that contained numbers from the error message (429, 500, 3.5). That is why that run's table shows "Answers the verifier changed 1/10". It was not the verifier catching a model mistake. The SQL rows for q10 were still correct, so the run's SQL accuracy counts it as correct.
-- Memory: about 624 MB for the agent after the first policy search, plus about 71 MB for an idle Streamlit server (Phase 6 section of `docs/results.md`). That is close to the documented minimum of Streamlit Community Cloud.
+- Free-tier quota: the API's own quota error for `gemini-3.5-flash-lite` states a limit of 500 requests per day (saved in `evals/runs/run-dev-after-fixes/records.jsonl`; `python scripts/doc_facts.py`, block 3).
+- The partial dev re-run (`run-dev-after-fixes`) shows "Answers the verifier changed 1/10". That was not the verifier catching a model mistake: on q10 the raw quota error text became the answer and the verifier removed its 3 sentences with numbers. The bug is now fixed (section 7), but the saved record of that run still shows the old behaviour. Its SQL rows were correct, so the run's SQL accuracy counts q10 as correct.
+- If the explanation step fails now, the user gets the result rows without a written explanation.
+- Memory: on my machine the agent came close to the documented minimum memory of Streamlit Community Cloud. Found during development, raw output not saved.
 
 ## 13. Eval v2
 
 **Pending. NOT MEASURED.** The 20 v2 questions were committed in `da8dea5` before any fix and before any run. The run has not happened, because the free daily quota ran out. The dev re-run after the fixes also stopped after 10 of 37 questions (all data questions), so it does not measure the fixes.
 
-## Claims I could not trace to a command
+## How the 24 untraceable claims were resolved
 
-These are statements in `docs/results.md` or `README.md` that have no command in the repository behind them, or that are stale or wrong. None of them is used in the tables above, except where a table says "command I ran".
+The first version of this file listed 24 statements in `docs/results.md` and `README.md` that had no command behind them. Commit `0cd31c5` fixed them. "Rewritten" means the statement now says "found during development, raw output not saved" and keeps no number. "Command" means the number is now printed by `python scripts/doc_facts.py`.
 
-**From runs whose raw output was not kept.** The only record of these is my own text, written when I saw the output. The output itself was overwritten by a later run, or exists only in a console log in my temporary session folder.
+| # | Claim | Outcome |
+|---|---|---|
+| 1 | SQL agent wrote `28 AS return_window_days` | Rewritten. Kept as "found and fixed, covered by tests" (tests named in section 7) |
+| 2 | First RAG example run said "not covered" for Spain, reranker detail | Rewritten, reranker detail removed |
+| 3 | Default thinking level gave "not covered" | Rewritten |
+| 4 | `gemini-2.5-flash` 404, `gemini-3.8-flash` 20 per day and 224 to 327 s | Rewritten, numbers removed |
+| 5 | First SQL run "about 2 s per question", "13 of 13 answered passed" | Rewritten, numbers removed |
+| 6 | Smoke test "8 more calls" | Number removed |
+| 7 | PDFs "2 to 3 pages each" | Deleted |
+| 8 | "23 model calls (10 router, 8 SQL, 3 RAG, 2 combiner)" | Rewritten, numbers removed |
+| 9 | Guardrail once blocked `'Germany' AS country` | Rewritten. Current behaviour is covered by tests |
+| 10 | Ids of judge scores below 5 and the p07 answer | Command (block 5) |
+| 11 | Input costs, output tokens, 22.8 s outlier, 79%, 19% | Output tokens and 79.1% and 18.8% now by command (block 2). Input costs and the outlier removed |
+| 12 | "No SQL repairs in 50 requests" | Deleted |
+| 13 | "About 440 calls a day", "`gemini-3.6-flash` allowed 17" | Deleted. Replaced by the 500 per day limit from the API error (block 3) |
+| 14 | Phase 6 one-off checks (prices, clean checkout, 502 and 503, memory, import time, browser) | Rewritten, all numbers removed. Tests named where they exist |
+| 15 | Docs minimum of 4,096 tokens | Removed. The 1,024-token minimum reported by the API (explicit cache trial) is kept |
+| 16 | "Phase 4 will rerun every component" | Rewritten: Phase 4 did this |
+| 17 | "Retail is assumed ... says so once" | Rewritten: that rule was replaced after eval v1 |
+| 18 | Prices "read through a page summariser" | Rewritten |
+| 19 | "Its daily limit is not shown to me" | Replaced by the 500 per day limit (block 3) |
+| 20 | "Those 10 say nothing about the fixes" | Rewritten: all 10 were routed correctly, none tests the policy fixes, q10 exposed a bug |
+| 21 | Confusing partial-run header and "verifier changed 1/10" | Explained in a note under that run's table |
+| 22 | README: v2 committed "after" the fixes | Corrected: `da8dea5` comes before the fix commit `83cea5a` |
+| 23 | README: "every number is copied by sync_readme.py" and hand-typed prose numbers | Rewritten. Prose numbers now come from the synced tables or the command. 440, 700 MB, 130 MB, 10 to 25 s and "about 85%" removed |
+| 24 | README: "Live demo answers take roughly 10 to 25 seconds" | Deleted |
 
-1. results.md, Phase 3: the SQL agent wrote `28 AS return_window_days`. The run's output was overwritten by the next run. Git history only has my description of it.
-2. results.md, Phase 1: the first RAG example run answered "not covered" for the Spain question, and the reranker pushed Shipping §3.2 out of the top 5. That first run was not kept.
-3. results.md, "Model, quota and latency": at the default thinking level, the model wrongly said "not covered" for the wholesale question. Seen once, output not kept.
-4. results.md: `gemini-2.5-flash` returned a 404, and `gemini-3.8-flash` allowed 20 requests per day. These come from error messages in the session, not from a saved result. Partial trace: `logs/llm_calls_old_pre_fix.jsonl` (local only) has the slow 3.8-flash calls (224 to 327 seconds).
-5. results.md: "The first SQL eval run took about 2 seconds per question" and "the first full run hit the 15 requests per minute limit on the last two questions (13 of 13 answered passed)". These come from console logs of runs that were later replaced.
-6. results.md: "A smoke test with 2 questions used 8 more calls". Console log only, and the smoke run folder was deleted.
+Also added to `docs/results.md`, under the eval v1 block: "SQL execution accuracy, held-out: 10 of 10 on eval v1; two later runs on the same questions gave 10 of 10 and 9 of 10" (command: block 1). The frozen eval v1 block itself was not changed.
 
-**From one-off commands in my session folder, not scripts in the repository.**
-
-7. results.md, Phase 1: the PDFs are "2 to 3 pages each" (a one-off page count with pypdf).
-8. results.md, Phase 3: "23 model calls in total (10 router, 8 SQL, 3 RAG, 2 combiner)" (a one-off count over `logs/llm_calls.jsonl`).
-9. results.md, Phase 4: "The rule did block a plain string label such as `SELECT 'Germany' AS country`" (a one-off guardrail check). The current behaviour is covered by tests.
-10. results.md, Phase 4: the ids behind the judge's scores below 5 (h11, p14, p15 and q04) and the p07 answer text. These are one-off inspections of `evals/runs/run-phase4/records.jsonl`. The file supports them, but no repository command prints them.
-11. results.md, Phase 5: input cost $0.007165 and $0.007152, output tokens 11,494 and 10,823, the 22.8 second outlier, "output tokens are about 79% of the cost", and "at most about 19%". One-off command. I re-ran the 79% and 19% figures for this file (79.1% and 18.8%).
-12. results.md, Phase 5: "There were no SQL repairs in the 50 requests run after repair logging was added" (one-off check).
-13. results.md, "Dev fixes and eval v2", and README "Limits": "about 440 successful calls in the quota day" and "`gemini-3.6-flash` allowed 17". This is a one-off count over `logs/llm_calls.jsonl` with an assumed quota-day boundary. The API's own error message says the limit is 500 per day (section 12). The 440 figure should not be used.
-14. results.md, Phase 6: the price check against the raw pricing page, the clean-checkout test, the real 502 and 503 error paths, the memory figures (220, 624 and 71 MB), "about 35 seconds" to import sentence-transformers, and the browser check of the UI. All were one-off scripts or manual checks. The parquet rebuild claim (36 of 36 gold queries) is covered by `tests/test_app_and_deploy_data.py`.
-15. results.md, Phase 5 and README: "the caching docs list a minimum of 4,096 tokens for implicit caching on gemini-3.6-flash". This comes from reading the Gemini docs through a page summariser, not from a command.
-
-**Stale or wrong statements.**
-
-16. results.md, the "Which model produced which result" section: "Phase 4 will rerun every component on one model". Stale, because Phase 4 did this.
-17. results.md, Phase 1: "retail is assumed when the customer type is not stated, and the answer says so once". Stale, because that prompt rule was replaced after eval v1.
-18. results.md, Phase 5, "Price table" bullet: "I read the prices ... through a page summariser, so please check them". Superseded, because Phase 6 checked them against the raw page.
-19. results.md, "Model, quota and latency": "Its daily limit is not shown to me". Now known: the API error says 500 per day.
-20. results.md, "Dev fixes and eval v2": "Those 10 say nothing about the fixes". Partly wrong. The router prompt changed, and those 10 data questions were all routed correctly after the change. Also, one of them (q10) ended with a garbled error message as its answer (section 12).
-21. results.md, section "Evaluation dev_after_fixes": the line "dev 10 ({'data': 15, 'policy': 20, ...})" shows the planned counts next to the 10 questions that finished, which is confusing. Its "Answers the verifier changed 1/10" was caused by an error message, not by a model mistake (section 12).
-22. README, "Eval v2 (pending)": says the v2 set was committed "after the router and prompt fixes were made". **Wrong.** It was committed before the fixes (commit `da8dea5` comes before the fix commit `83cea5a`). results.md has the correct order.
-23. README, "Results": "Every number below is copied from docs/results.md by scripts/sync_readme.py". Only the tables are copied by the script. Prose numbers in the README (79%, 19%, about 440 calls, about 700 MB, about 130 MB, 10 to 25 seconds, about 85%) were typed by hand. I checked two of them for this file: the embedding model is 129 MB on disk (`du`), and 79% matches the re-run (79.1%). The "about 440 calls" figure is wrong (item 13).
-24. README, "Limits": "Live demo answers take roughly 10 to 25 seconds". This comes from eval wall times, which include 4.5 second pacing gaps. It was not measured in a deployed demo, because there is none.
+What still has no repository command, by design: the statements marked "found during development, raw output not saved". They carry no numbers. The nightly dry run in the Phase 5 section of `docs/results.md` (10 of 10 questions, 30 calls) comes from a run folder that is git-ignored (`evals/runs/nightly-local/`), so it is local only.
