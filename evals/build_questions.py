@@ -26,6 +26,7 @@ TRAJECTORY = {
 
 RR, WQ, SD, LP, DP = ("Returns and Refunds", "Warranty and Product Quality", "Shipping and Delivery",
                       "Loyalty Programme", "Customer Data and Privacy")
+WB_DOC = "Wholesale and B2B Terms"
 
 
 def cite(doc: str, clause: str) -> dict[str, str]:
