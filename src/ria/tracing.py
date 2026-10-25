@@ -28,11 +28,14 @@ def usage_from_response(response: Any) -> dict[str, int]:
 
 
 def log_llm_call(node: str, model: str, latency_s: float, attempts: int, usage: dict[str, int],
-                 error: str | None = None, path: Path | None = None, wait_s: float = 0.0) -> dict[str, Any]:
+                 error: str | None = None, path: Path | None = None, wait_s: float = 0.0,
+                 cache_hit: bool | None = None) -> dict[str, Any]:
     record = {
         "ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "node": node, "model": model,
         "latency_s": round(latency_s, 3), "wait_s": round(wait_s, 3), "attempts": attempts, **usage,
     }
+    if cache_hit is not None:
+        record["cache_hit"] = cache_hit  # absent when the cache is switched off
     if error:
         record["error"] = error[:300]
     target = path or LLM_CALLS_PATH
@@ -40,3 +43,17 @@ def log_llm_call(node: str, model: str, latency_s: float, attempts: int, usage: 
     with target.open("a", encoding="utf-8") as f:
         f.write(json.dumps(record) + "\n")
     return record
+
+
+TRACES_PATH = config.ROOT / "logs" / "traces.jsonl"
+
+
+def log_request_trace(record: dict[str, Any], path: Path | None = None) -> None:
+    """One JSON line per request: thread, question, route, trajectory, verifier result, latency.
+
+    Phase 5 adds token and cost totals.
+    """
+    target = path or TRACES_PATH
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), **record}, default=str) + "\n")

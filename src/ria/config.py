@@ -17,6 +17,9 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "")
 # because the lighter model at its default (minimal) wrongly said "not covered" on a question it should answer.
 THINKING_LEVELS = {"router": "low", "sql": "low", "rag": "medium"}
 LLM_TEMPERATURE = 0.0
+# Local LLM response cache for development. One flag: set RIA_LLM_CACHE=0 (or this to False) to turn it off.
+# Default is ON (tests, examples). Final evals and latency runs must turn it OFF.
+LLM_CACHE_ENABLED = os.getenv("RIA_LLM_CACHE", "1") != "0"
 LLM_MAX_ATTEMPTS = 5  # Tenacity: retry on 429 and 5xx only
 LLM_BACKOFF_MULTIPLIER = 4  # seconds; waits are random up to 4, 8, 16, 32 (free tier minute limits need ~40s)
 # Free tier allows 15 requests per minute per model. A small gap between calls avoids most 429s. Set 0 on a paid plan.
@@ -27,6 +30,7 @@ DATA_DIR = ROOT / "data"
 DOCS_DIR = DATA_DIR / "docs"
 DB_DIR = DATA_DIR / "db"
 CHROMA_DIR = DATA_DIR / "chroma"
+LLM_CACHE_DIR = DATA_DIR / "cache" / "llm"
 CHUNKS_PATH = CHROMA_DIR / "chunks.json"
 RESULTS_MD = ROOT / "docs" / "results.md"
 

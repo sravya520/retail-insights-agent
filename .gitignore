@@ -6,5 +6,6 @@ __pycache__/
 data/raw/
 data/db/
 data/chroma/
+data/cache/
 logs/
 *.egg-info/

@@ -2,6 +2,17 @@
 
 Every number below was produced by the command shown next to it. Sections between the BEGIN and END markers are rewritten by the scripts.
 
+## Which model produced which result
+
+| Result | Model | Notes |
+|---|---|---|
+| Retrieval comparison (Phase 1) | No Gemini model. Embeddings `BAAI/bge-small-en-v1.5`, reranker `cross-encoder/ms-marco-MiniLM-L-6-v2` | Runs locally. |
+| RAG example answers (Phase 1) | `gemini-3.5-flash-lite`, RAG thinking `medium` | Run before the cache existed. |
+| SQL accuracy (Phase 2) | `gemini-3.5-flash-lite`, SQL thinking `low` | Cache off. |
+| Graph example runs (Phase 3) | `gemini-3.5-flash-lite` for router (low), SQL agent (low), RAG agent (medium), combiner (medium) | Cache on, so some calls in the examples came from cache. |
+
+Nothing in this file was produced by `gemini-3.8-flash`. Its calls early in Phase 1 were discarded. Phase 4 will rerun every component on one model, so the numbers can be compared.
+
 ## Phase 1: Documents and RAG
 
 What was built:
@@ -192,3 +203,142 @@ Honest notes on the SQL numbers:
 - Gold answers are produced by running my gold SQL on the database (`python evals/build_sql_gold.py`). They are as correct as my SQL is.
 - The first full run hit the 15 requests per minute limit on the last two questions (13 of 13 answered passed). That is why the pacing gap exists. The reported run is a complete re-run.
 - The question "Which product sold the most units" and the product questions rely on `is_merchandise` and the `products` view. The schema text tells the model so.
+
+<!-- BEGIN phase3_examples -->
+### Graph example runs (LangGraph, memory, verifier)
+
+Command: `python evals/graph_examples.py`. Model: `gemini-3.5-flash-lite` for the router, SQL agent, RAG agent and combiner
+(thinking: router low, SQL low, RAG and combiner medium). LLM cache: on.
+Calls marked "from cache" were answered by the local development cache from an earlier identical call, so the wall time of those runs is not a latency measurement.
+
+**data (turn 1 of the memory example)**
+
+- Thread: `demo-memory`
+- Question: What were the top 5 products by revenue in November 2011?
+- Standalone question from the router: What were the top 5 products by revenue in November 2011?
+- Route: `data`
+- Trajectory: `['router', 'sql_agent', 'combiner', 'verifier']`
+- Verifier: verified = True, sentences removed = 0
+- SQL: `SELECT p.description, SUM(s.revenue) AS total_revenue FROM sales AS s JOIN products AS p ON s.stock_code = p.stock_code WHERE s.invoice_year = 2011 AND s.invoice_month = 11 AND s.is_merchandise GROUP BY p.description ORDER BY total_revenue DESC LIMIT 5`
+- Model calls: 1 real, 2 from cache. Wall time 2.145 s.
+
+Answer:
+
+> In November 2011, the top product by revenue was RABBIT NIGHT LIGHT with £34,556.72, followed by PAPER CHAIN KIT 50'S CHRISTMAS with £28,985.04.
+> The next highest earners were WHITE HANGING HEART T-LIGHT HOLDER at £14,362.12, SMALL POPCORN HOLDER at £14,195.60, and REGENCY CAKESTAND 3 TIER at £13,799.58.
+
+---
+
+**data follow-up (turn 2, same thread_id)**
+
+- Thread: `demo-memory`
+- Question: And in December?
+- Standalone question from the router: What were the top 5 products by revenue in December 2011?
+- Route: `data`
+- Trajectory: `['router', 'sql_agent', 'combiner', 'verifier']`
+- Verifier: verified = True, sentences removed = 0
+- SQL: `SELECT p.description, SUM(s.revenue) AS total_revenue FROM sales AS s JOIN products AS p ON s.stock_code = p.stock_code WHERE s.invoice_year = 2011 AND s.invoice_month = 12 AND s.is_merchandise GROUP BY p.description ORDER BY total_revenue DESC LIMIT 5`
+- Model calls: 1 real, 2 from cache. Wall time 3.772 s.
+
+Answer:
+
+> In December 2011, the top product by revenue was PAPER CRAFT , LITTLE BIRDIE with £168,469.60.
+> The next highest-selling products were RABBIT NIGHT LIGHT at £9,643.02, PAPER CHAIN KIT 50'S CHRISTMAS at £6,870.71, REGENCY CAKESTAND 3 TIER at £6,006.87, and BLACK RECORD COVER FRAME at £5,582.43.
+
+---
+
+**policy (dev question p05)**
+
+- Thread: `demo-policy`
+- Question: Can a wholesale customer return a damaged item after 40 days?
+- Standalone question from the router: Can a wholesale customer return a damaged item after 40 days?
+- Route: `policy`
+- Trajectory: `['router', 'rag_agent', 'combiner', 'verifier']`
+- Verifier: verified = True, sentences removed = 0
+- Model calls: 1 real, 1 from cache. Wall time 17.387 s.
+
+Answer:
+
+> No, a wholesale customer cannot return a damaged item after 40 days because damage must be reported within 48 hours of delivery [Returns and Refunds §7.4, p.2]. Claims made after 48 hours may be refused [Returns and Refunds §7.4, p.2], and the wholesale return window is 14 days [Returns and Refunds §7.1, p.2].
+
+---
+
+**both**
+
+- Thread: `demo-both`
+- Question: How many orders were returned in December 2010, and how long do retail customers have to return an item if they change their mind?
+- Standalone question from the router: How many orders were returned in December 2010, and how long do retail customers have to return an item if they change their mind?
+- Route: `both`
+- Trajectory: `['router', 'sql_agent', 'rag_agent', 'combiner', 'verifier']`
+- Verifier: verified = True, sentences removed = 0
+- SQL: `SELECT COUNT(DISTINCT invoice_no) AS returned_orders FROM returns WHERE invoice_year = 2010 AND invoice_month = 12 LIMIT 200`
+- Model calls: 5 real, 0 from cache. Wall time 20.986 s.
+
+Answer:
+
+> There were 326 returned orders in December 2010, and retail customers have 30 days from the delivery date to return an unused item if they change their mind [Returns and Refunds §2.1, p.1].
+
+---
+
+**out_of_scope**
+
+- Thread: `demo-oos`
+- Question: What is the weather in London tomorrow?
+- Standalone question from the router: What is the weather in London tomorrow?
+- Route: `out_of_scope`
+- Trajectory: `['router', 'refuse']`
+- Verifier: verified = None, sentences removed = 0
+- Model calls: 1 real, 0 from cache. Wall time 2.839 s.
+
+Answer:
+
+> I can only help with questions about Northwind Gifts sales data and its policy documents (returns, warranty, shipping, wholesale terms, loyalty programme, data privacy). I cannot help with that question.
+
+---
+
+**Verifier test with an injected fault (not model output)**
+
+I took the real draft answer of the `both` run and appended two made-up sentences: one with a number that is in no data or policy text (87%), and one with a citation that matches no retrieved chunk (§9.9).
+
+- Removed: [{"sentence": "Revenue also grew 87% on last year.", "reason": "unsupported_number", "detail": "87"}, {"sentence": "Wholesale buyers can return goods for 90 days [Returns and Refunds \u00a79.9, p.3].", "reason": "invalid_citation", "detail": "Returns and Refunds \u00a79.9"}]
+- verified = False
+
+Answer after verification:
+
+> There were 326 returned orders in December 2010, and retail customers have 30 days from the delivery date to return an unused item if they change their mind [Returns and Refunds §2.1, p.1].
+
+The cleaned answer equals the original draft: True.
+<!-- END phase3_examples -->
+
+
+## Phase 3: LangGraph workflow with memory
+
+What was built (commands shown are the ones that produced the numbers):
+
+- `graph.py`: a LangGraph `StateGraph` with the nodes `router`, `sql_agent`, `rag_agent`, `combiner`, `verifier` and `refuse`. The router uses structured output with a Pydantic class (`RouterDecision`). State is saved per `thread_id` with `MemorySaver`. Each node adds its name to `state["trajectory"]`, and each request writes a line to `logs/traces.jsonl`.
+- `verifier.py`: plain code, no LLM. It splits the answer into sentences and removes a sentence if it has a citation that matches no retrieved chunk (doc and clause id), or a number that is not supported. A number is supported if it is in the SQL rows (with rounding tolerance), in the user's question, in the text of a chunk that the same sentence cites, or equals the row count. Removed sentences are returned with the reason and are written to the trace log.
+- `llm.py`: a local response cache (flag `LLM_CACHE_ENABLED` in `config.py`, or `RIA_LLM_CACHE=0`). The key is model, full prompt and settings. Cache hits are logged in `logs/llm_calls.jsonl` with `cache_hit: true`. The default is on. `evals/sql_eval.py` turns it off. The final eval and latency runs must turn it off too.
+- Tests: `pytest` gives 86 passed (command: `pytest`). New tests cover the verifier (fabricated number, fake citation, rounding, citation after the full stop, list markers, idempotence), the router schema, all four routes end to end on a mocked LLM, memory across turns and across threads, the split of a `both` question, the trace line, and the cache (hit, off switch, key changes, structured calls).
+
+Real API use in Phase 3: 23 model calls in total (10 router, 8 SQL, 3 RAG, 2 combiner), no errors. This is more than the 14 I planned, because I ran the examples three times: one run crashed on a bug, and one run exposed the two problems below. The repeats were partly answered from cache.
+
+What the examples showed (section above, produced by `python evals/graph_examples.py`):
+
+- **All four routes work.** Trajectories were exactly `[router, sql_agent, combiner, verifier]` for data, `[router, rag_agent, combiner, verifier]` for policy, `[router, sql_agent, rag_agent, combiner, verifier]` for both, and `[router, refuse]` for out of scope.
+- **Memory works.** On thread `demo-memory`, "And in December?" was rewritten by the router to "What were the top 5 products by revenue in December 2011?". The answer for December 2011 is dominated by one product with £168,469.60. That is real data in this dataset (one very large order), not a bug.
+- **The verifier removed nothing in the real runs.** The model did not produce an unsupported number or citation in these 5 runs. To show the removal path I added a test with an injected fault. I appended a made-up number (87%) and a fake citation (§9.9) to a real answer. The verifier removed both sentences, logged why, and the cleaned answer equals the original. This shows the verifier works. It does not show how often the model makes such mistakes. Phase 4 measures that on more questions.
+
+Two real problems found and fixed during this phase:
+
+1. **The SQL agent invented a number.** In the first `both` run the SQL agent wrote `SELECT COUNT(...), 28 AS return_window_days ...`. The 28 came from nowhere (the policy says 30), and the verifier accepted it because it was in the SQL result. Fixes: (a) a new SQL guardrail rejects constant values in the top-level SELECT list, so the agent must repair the query, and (b) the router now splits a `both` question into `data_question` and `policy_question`, so each agent only sees its own part. The fix is unit-tested. I did not measure how often the model invented constants before the fix.
+2. **The mixed question confused the RAG agent.** It saw the whole mixed question and answered "The policy documents do not cover this", and the combiner kept that next to the invented 28. After the split, the answer is correct: 326 returned orders, and 30 days with the citation `[Returns and Refunds §2.1, p.1]`.
+
+Also fixed: on a cache miss, Gemini can return reply content as a list of parts, which crashed the combiner. `invoke_with_retry` now always returns text.
+
+Known limits of the verifier (not fixed):
+
+- It trusts the SQL rows. If the SQL is wrong but runs, the number passes. That is what SQL execution accuracy measures.
+- It checks numbers and citation ids only. It does not check that a cited chunk supports what the sentence says. Numbers written as words ("five") are not checked.
+- It extends the original rule in two ways: policy numbers are allowed if they appear in the cited chunk, and numbers repeated from the question are allowed. Without these, almost every policy answer would be removed.
+- `verified` is `True` when nothing had to be removed. If every sentence is removed the answer becomes a fixed fallback message. For out of scope questions `verified` is `None` because no answer text is checked.
+- The router and the whole graph are only tested on 5 real questions so far. There are no router or route-accuracy numbers until Phase 4.

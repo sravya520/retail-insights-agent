@@ -5,6 +5,8 @@ import pytest
 def _isolated_call_log(tmp_path, monkeypatch):
     """Tests must never write to the real logs/llm_calls.jsonl."""
     monkeypatch.setattr("ria.tracing.LLM_CALLS_PATH", tmp_path / "llm_calls.jsonl")
+    monkeypatch.setattr("ria.tracing.TRACES_PATH", tmp_path / "traces.jsonl")
+    monkeypatch.setattr("ria.config.LLM_CACHE_DIR", tmp_path / "llm_cache")
 
 
 @pytest.fixture(autouse=True)

@@ -77,6 +77,12 @@ def validate_sql(sql: str, schema: dict[str, list[str]], max_rows: int = MAX_ROW
             if name.startswith(FORBIDDEN_FUNCTION_PREFIXES):
                 raise SQLValidationError(f"Function {name} is not allowed.")
 
+    # The top-level SELECT list may not contain constants: a made-up value like "28 AS window_days" would look like data.
+    for projection in tree.expressions:
+        inner = projection.this if isinstance(projection, exp.Alias) else projection
+        if isinstance(inner, exp.Literal):
+            raise SQLValidationError("Constant values in the SELECT list are not allowed. Select columns or aggregates from the tables.")
+
     tables = {t.lower(): cols for t, cols in schema.items()}
     column_union = {c.lower() for cols in schema.values() for c in cols}
     ctes = _cte_names(tree)

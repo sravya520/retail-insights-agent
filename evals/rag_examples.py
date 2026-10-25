@@ -10,6 +10,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from ria import config  # noqa: E402
 from ria.rag_agent import answer_policy_question  # noqa: E402
 from ria.results_md import update_section  # noqa: E402
 from ria.retrieval import Retriever  # noqa: E402
@@ -31,7 +32,9 @@ def main() -> None:
         blocks.append(
             f"**Q:** {q}\n\n**A:** {res.answer}\n\n"
             f"Citations matched to retrieved chunks: {len(res.citations)}. Not matched: {len(res.invalid_citations)}.")
-    update_section("phase1_examples", "### Example answers\n\nCommand: `python evals/rag_examples.py`\n\n" + "\n\n---\n\n".join(blocks))
+    header = (f"### Example answers\n\nCommand: `python evals/rag_examples.py`. Model: `{config.GEMINI_MODEL}` "
+              f"(RAG thinking: {config.THINKING_LEVELS.get('rag')}). LLM cache: {'on' if config.LLM_CACHE_ENABLED else 'off'}.\n\n")
+    update_section("phase1_examples", header + "\n\n---\n\n".join(blocks))
 
 
 if __name__ == "__main__":

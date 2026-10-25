@@ -32,6 +32,9 @@ SCHEMA = {
     "PRAGMA database_list",
     "ATTACH 'other.db'",
     "SELECT 1 UNION SELECT 2",
+    "SELECT COUNT(*) AS n, 28 AS return_window_days FROM returns",   # made-up constant looks like data
+    "SELECT 'Q1' AS quarter, SUM(revenue) FROM sales",
+    "SELECT 42",
     "",
     "not sql at all",
 ])

@@ -4,7 +4,7 @@ A business user asks questions in plain English about a retail company. A LangGr
 
 Design principle: the LLM decides and explains. Code does the maths and checks the facts.
 
-> **Status: Phase 2 of 6 done (documents, RAG, sales database, SQL agent).** The LangGraph workflow, the full eval harness, token economics, the API and the UI come in later phases.
+> **Status: Phase 3 of 6 done (documents, RAG, sales database, SQL agent, LangGraph workflow with memory and a verifier).** The full eval harness, token economics, the API and the UI come in later phases.
 
 ## Important: the policy documents are synthetic
 
@@ -72,3 +72,22 @@ The model name is set in one place, `src/ria/config.py` (`GEMINI_MODEL`). The fr
 ## Dev and held-out questions
 
 Questions used to build or tune the system are marked `dev`. See `evals/DEV_SPLIT.md`. The final eval will report held-out questions separately.
+
+## Phase 3: LangGraph workflow
+
+```bash
+python evals/graph_examples.py      # one run per route, a two-turn memory example, a verifier fault test
+```
+
+```text
+router -> sql_agent -> combiner -> verifier                (data)
+router -> rag_agent -> combiner -> verifier                (policy)
+router -> sql_agent -> rag_agent -> combiner -> verifier   (both)
+router -> refuse                                           (out of scope)
+```
+
+The router returns a Pydantic object with the route, a standalone version of the question (so follow-ups like "And in December?" work) and, for mixed questions, one sub-question per agent. State is kept per `thread_id` with LangGraph `MemorySaver`. The verifier is plain code: it removes sentences with a citation that matches no retrieved chunk or a number that is not supported by the SQL rows, the cited chunk or the question. Each request writes its trajectory and verifier result to `logs/traces.jsonl`.
+
+## Development cache
+
+Set `RIA_LLM_CACHE=0` (or `LLM_CACHE_ENABLED = False` in `src/ria/config.py`) to switch off the local LLM response cache. It is on by default for tests and examples and must be off for final evals and latency measurements. Cache hits are logged with `cache_hit: true` in `logs/llm_calls.jsonl`. Cached files are in `data/cache/` (git-ignored).

@@ -1,19 +1,24 @@
-"""Gemini client with Tenacity retry and per-call logging.
+"""Gemini client with Tenacity retry, a local response cache and per-call logging.
 
-Only 429 and 5xx are retried, all other errors fail fast with a clear message.
+* Only 429 and 5xx are retried. A 429 for the daily quota is not retried. Other errors fail fast.
+* Cache (development only): key = model + full prompt + settings (+ schema for structured calls),
+  stored as JSON files on disk. Controlled by one flag, config.LLM_CACHE_ENABLED.
+  Cache hits are logged in logs/llm_calls.jsonl with cache_hit=true.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 import threading
 import time
-from typing import Any
+from pathlib import Path
+from typing import Any, Callable
 
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from ria import config
 from ria.tracing import log_llm_call, usage_from_response
-
 
 _pace_lock = threading.Lock()
 _last_call_end = 0.0
@@ -71,11 +76,71 @@ def get_llm(role: str = "default", model: str | None = None, temperature: float 
     )
 
 
-def invoke_with_retry(llm: Any, messages: Any, node: str = "llm") -> Any:
-    """Call the model with retry, and log node, tokens and latency.
+# ---------------------------------------------------------------- cache
 
-    latency_s is time spent inside the model call (all attempts). wait_s is pacing and retry backoff time.
-    """
+def _normalise_messages(messages: Any) -> list[list[str]]:
+    if isinstance(messages, str):
+        return [["human", messages]]
+    out = []
+    for m in messages:
+        if isinstance(m, (tuple, list)):
+            role, content = m[0], m[1]
+        else:
+            role, content = getattr(m, "type", "human"), getattr(m, "content", str(m))
+        out.append([str(role), content if isinstance(content, str) else json.dumps(content, sort_keys=True)])
+    return out
+
+
+def cache_key(llm: Any, messages: Any, schema_name: str = "") -> str:
+    """Key = model + full prompt + settings (+ schema). Any change to any of them gives a new key."""
+    payload = {
+        "model": getattr(llm, "model", "") or getattr(llm, "model_name", ""),
+        "temperature": getattr(llm, "temperature", None),
+        "thinking": getattr(llm, "reasoning_effort", None),
+        "schema": schema_name,
+        "messages": _normalise_messages(messages),
+    }
+    return hashlib.sha256(json.dumps(payload, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def _cache_path(key: str) -> Path:
+    return config.LLM_CACHE_DIR / f"{key}.json"
+
+
+def _cache_get(key: str) -> dict[str, Any] | None:
+    path = _cache_path(key)
+    try:
+        return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
+    except (OSError, ValueError):
+        return None
+
+
+def _cache_put(key: str, value: dict[str, Any]) -> None:
+    config.LLM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    _cache_path(key).write_text(json.dumps(value), encoding="utf-8")
+
+
+def _text(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    return "".join(p.get("text", "") if isinstance(p, dict) else str(p) for p in content)
+
+
+# ---------------------------------------------------------------- core call
+
+def _call(llm: Any, invoke: Callable[[], Any], node: str, key: str,
+          encode: Callable[[Any], dict[str, Any]], decode: Callable[[dict[str, Any]], Any],
+          usage_of: Callable[[Any], dict[str, int]]) -> Any:
+    """Cache lookup, then retry loop, then logging. latency_s is model time only. wait_s is pacing and backoff."""
+    model = getattr(llm, "model", config.GEMINI_MODEL)
+    use_cache = config.LLM_CACHE_ENABLED
+    if use_cache:
+        started = time.perf_counter()
+        hit = _cache_get(key)
+        if hit is not None:
+            log_llm_call(node, model, time.perf_counter() - started, 0, hit.get("usage", {}), cache_hit=True)
+            return decode(hit)
+
     attempts = 0
     busy = 0.0
 
@@ -91,17 +156,53 @@ def invoke_with_retry(llm: Any, messages: Any, node: str = "llm") -> Any:
         _pace()
         started = time.perf_counter()
         try:
-            return llm.invoke(messages)
+            return invoke()
         finally:
             busy += time.perf_counter() - started
 
-    model = getattr(llm, "model", config.GEMINI_MODEL)
     start = time.perf_counter()
     try:
         response = _invoke()
     except Exception as exc:  # noqa: BLE001
         log_llm_call(node, model, busy, attempts, {}, error=f"{type(exc).__name__}: {exc}",
-                     wait_s=time.perf_counter() - start - busy)
+                     wait_s=time.perf_counter() - start - busy, cache_hit=False if use_cache else None)
         raise LLMError(f"Gemini call failed ({type(exc).__name__}): {exc}") from exc
-    log_llm_call(node, model, busy, attempts, usage_from_response(response), wait_s=time.perf_counter() - start - busy)
+    usage = usage_of(response)
+    log_llm_call(node, model, busy, attempts, usage, wait_s=time.perf_counter() - start - busy,
+                 cache_hit=False if use_cache else None)
+    if use_cache:
+        _cache_put(key, {**encode(response), "usage": usage})
     return response
+
+
+def invoke_with_retry(llm: Any, messages: Any, node: str = "llm") -> Any:
+    """Plain text call. Returns an object with .content (text) and .usage_metadata."""
+    from langchain_core.messages import AIMessage
+
+    reply = _call(
+        llm, lambda: llm.invoke(messages), node, cache_key(llm, messages),
+        encode=lambda r: {"content": _text(r.content)}, decode=lambda d: AIMessage(content=d["content"]),
+        usage_of=usage_from_response)
+    if not isinstance(reply.content, str):  # Gemini can return a list of content parts: always give callers text
+        reply = AIMessage(content=_text(reply.content))  # usage is already logged by _call
+    return reply
+
+
+def invoke_structured(llm: Any, messages: Any, schema: Any, node: str = "llm") -> Any:
+    """Structured output call. Returns an instance of the Pydantic class `schema`."""
+    structured = llm.with_structured_output(schema, include_raw=True)
+
+    def run() -> Any:
+        result = structured.invoke(messages)
+        if result.get("parsed") is None:
+            raise ValueError(f"Model output did not match {schema.__name__}: {result.get('parsing_error')}")
+        return result
+
+    def usage_of(result: Any) -> dict[str, int]:
+        return usage_from_response(result["raw"]) if result.get("raw") is not None else {}
+
+    result = _call(
+        llm, run, node, cache_key(llm, messages, schema_name=json.dumps(schema.model_json_schema(), sort_keys=True)),
+        encode=lambda r: {"parsed": r["parsed"].model_dump()},
+        decode=lambda d: {"parsed": schema(**d["parsed"]), "raw": None}, usage_of=usage_of)
+    return result["parsed"]

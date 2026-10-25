@@ -22,6 +22,7 @@ EXAMPLE_IDS = ["q02", "q08", "q15"]  # fixed in advance, shown whether they pass
 
 
 def main() -> None:
+    config.LLM_CACHE_ENABLED = "--cache" in sys.argv  # final evals run with the cache OFF
     questions = [json.loads(l) for l in (ROOT / "evals" / "sql_questions.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
     agent = SQLAgent()
     records = []
@@ -54,7 +55,7 @@ def main() -> None:
 
     update_section("phase2_sql", f"""### SQL agent execution accuracy ({len(records)} questions, all dev split)
 
-Command: `python evals/sql_eval.py`. Model: `{config.GEMINI_MODEL}`, thinking level for the SQL agent: `{config.THINKING_LEVELS.get('sql')}`.
+Command: `python evals/sql_eval.py` (LLM cache off). Model: `{config.GEMINI_MODEL}`, thinking level for the SQL agent: `{config.THINKING_LEVELS.get('sql')}`.
 
 - **Execution accuracy: {n_ok}/{len(records)} = {n_ok / len(records):.1%}** (agent result matches gold result, numeric tolerance 0.5%).
 - Correct on the first query: {n_first}. Correct after the one repair: {n_repaired_ok}. Queries that failed even after repair: {n_error}.

@@ -54,7 +54,7 @@ def main() -> None:
     miss_lines = "\n".join(f"- {n}: {', '.join(ids)}" for n, ids in misses.items()) or "- none"
     update_section("phase1_retrieval", f"""### Retrieval comparison ({len(questions)} policy questions)
 
-Command: `python evals/retrieval_eval.py`
+Command: `python evals/retrieval_eval.py`. Models: embeddings `BAAI/bge-small-en-v1.5` and reranker `cross-encoder/ms-marco-MiniLM-L-6-v2`. No Gemini calls.
 
 | Method | Recall@5 | MRR@5 |
 |---|---|---|
