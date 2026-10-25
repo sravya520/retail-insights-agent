@@ -1,0 +1,71 @@
+name: nightly-eval
+
+# Every night: run the offline gate tests, then a 10-question eval subset on the real model.
+# The job fails if a gate fails (no unsupported number or citation in a final answer, every out of scope question
+# refused, the SQL guardrail blocks every unsafe query) or if any test fails.
+# Needs the repository secret GOOGLE_API_KEY. No judge calls and no write to docs/results.md.
+
+on:
+  schedule:
+    - cron: "30 1 * * *"
+  workflow_dispatch:
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      RIA_LLM_CACHE: "0"            # the eval must never use the development response cache
+      HF_HUB_DISABLE_SYMLINKS_WARNING: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          pip install -r requirements.txt
+          pip install -e .
+
+      - name: Cache Hugging Face models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-models-bge-small-ms-marco-v1
+
+      - name: Build the vector index from the policy PDFs
+        run: python -m ria.ingest_docs
+
+      - name: Download the dataset and build DuckDB
+        run: |
+          mkdir -p data/raw/online_retail_ii
+          curl -sSL -o data/raw/online_retail_ii.zip "https://archive.ics.uci.edu/static/public/502/online+retail+ii.zip"
+          unzip -o data/raw/online_retail_ii.zip -d data/raw/online_retail_ii
+          python -I -m ria.sql_db
+
+      - name: Gate tests (offline, no API calls)
+        run: pytest -q
+
+      - name: 10-question eval subset (real model, gates fail the job)
+        run: >
+          python evals/run_evals.py
+          --subset evals/nightly_subset.json
+          --no-judge --no-write
+          --label nightly
+          --resume nightly-${{ github.run_id }}
+
+      - name: Keep the report and records
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-eval-${{ github.run_id }}
+          path: |
+            evals/runs/nightly-${{ github.run_id }}/
+            logs/llm_calls.jsonl
+            logs/traces.jsonl
+            logs/sql_repairs.jsonl
+          if-no-files-found: ignore

@@ -10,3 +10,4 @@ data/cache/
 logs/
 *.egg-info/
 evals/runs/*/label_meta.json
+evals/runs/nightly-*

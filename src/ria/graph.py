@@ -21,9 +21,10 @@ from pydantic import BaseModel, Field
 
 from ria import config
 from ria.llm import get_llm, invoke_structured, invoke_with_retry
+from ria.prompting import build_messages
 from ria.rag_agent import RagAnswer, answer_policy_question
 from ria.sql_agent import SQLAgent
-from ria.tracing import log_request_trace
+from ria.tracing import log_request_trace, request_scope, totals
 from ria.verifier import verify_answer
 
 Route = Literal["data", "policy", "both", "out_of_scope"]
@@ -128,8 +129,7 @@ Policy answer:
 def build_graph(services: Services, checkpointer: Any = None):
     def router(state: State) -> State:
         history = state.get("history", [])
-        messages = [("system", ROUTER_PROMPT),
-                    ("human", f"Chat history:\n{_history_text(history)}\n\nNew question: {state['question']}")]
+        messages = build_messages(ROUTER_PROMPT, f"Chat history:\n{_history_text(history)}\n\nNew question: {state['question']}")
         decision = invoke_structured(services.router_llm, messages, RouterDecision, node="router")
         standalone = decision.standalone_question.strip() or state["question"]
         return {"route": decision.route, "standalone_question": standalone,
@@ -141,7 +141,8 @@ def build_graph(services: Services, checkpointer: Any = None):
     def sql_agent(state: State) -> State:
         res = services.sql_agent.run(state["data_question"])
         sql = {"sql": res.sql, "columns": res.columns, "rows": [[_jsonable(v) for v in r] for r in res.rows],
-               "answer": res.answer, "error": res.error, "repaired": res.repaired}
+               "answer": res.answer, "error": res.error, "repaired": res.repaired,
+               "repair_log": res.repair_log}
         return {"sql": sql, "trajectory": state["trajectory"] + ["sql_agent"]}
 
     def rag_agent(state: State) -> State:
@@ -200,16 +201,21 @@ def build_graph(services: Services, checkpointer: Any = None):
     return graph.compile(checkpointer=checkpointer or MemorySaver())
 
 
-def ask(app: Any, question: str, thread_id: str = "default") -> dict[str, Any]:
-    """Run one question on a thread. Returns the final state plus latency, and writes a trace line."""
+def ask(app: Any, question: str, thread_id: str = "default", label: str | None = None) -> dict[str, Any]:
+    """Run one question on a thread. Returns the final state plus latency and usage totals, and writes a trace line."""
     started = time.perf_counter()
-    state = app.invoke({"question": question}, config={"configurable": {"thread_id": thread_id}})
+    with request_scope() as calls:
+        state = app.invoke({"question": question}, config={"configurable": {"thread_id": thread_id}})
     state = dict(state)
     state["latency_s"] = round(time.perf_counter() - started, 3)
     state["thread_id"] = thread_id
+    state["usage"] = totals(calls)
+    state["calls"] = [{k: c.get(k) for k in ("node", "model", "input_tokens", "output_tokens", "cached_tokens",
+                                             "latency_s", "cost_usd", "cache_hit")} for c in calls]
     log_request_trace({
         "thread_id": thread_id, "question": question, "standalone_question": state.get("standalone_question"),
         "route": state.get("route"), "trajectory": state.get("trajectory"), "verified": state.get("verified"),
         "removed": (state.get("verifier") or {}).get("removed", []), "latency_s": state["latency_s"],
-        "model": config.GEMINI_MODEL})
+        "model": config.GEMINI_MODEL, "label": label, "layout": config.PROMPT_LAYOUT, **state["usage"],
+        "calls": state["calls"]})
     return state

@@ -23,6 +23,18 @@ JUDGE_MODELS = ["gemini-3.6-flash", "gemini-3.7-flash", GEMINI_MODEL]
 # Local LLM response cache for development. One flag: set RIA_LLM_CACHE=0 (or this to False) to turn it off.
 # Default is ON (tests, examples). Final evals and latency runs must turn it OFF.
 LLM_CACHE_ENABLED = os.getenv("RIA_LLM_CACHE", "1") != "0"
+# Price table, USD per 1 million tokens. EDIT THIS when prices change.
+# Source: "Standard" table on https://ai.google.dev/gemini-api/docs/pricing, read on 2026-10-25 through a page
+# summariser, so check it against the page. The free tier bills nothing. These are the paid-tier prices, so cost
+# figures show what the same usage would cost on a paid plan. Output price includes thinking tokens.
+# gemini-3.6-flash and gemini-3.8-flash are listed at $0.75 / $3.75 / $0.075 until 2026-12-31, then double.
+PRICES = {
+    "gemini-3.5-flash-lite": {"input": 0.30, "output": 2.50, "cached_input": 0.03},
+    "gemini-3.6-flash": {"input": 0.75, "output": 3.75, "cached_input": 0.075},
+    "gemini-3.8-flash": {"input": 0.75, "output": 3.75, "cached_input": 0.075},
+}
+# Prompt layout: "stable_first" (production) or "question_first" (baseline used only by the caching experiment).
+PROMPT_LAYOUT = "stable_first"
 LLM_MAX_ATTEMPTS = 5  # Tenacity: retry on 429 and 5xx only
 LLM_BACKOFF_MULTIPLIER = 4  # seconds; waits are random up to 4, 8, 16, 32 (free tier minute limits need ~40s)
 # Free tier allows 15 requests per minute per model. A small gap between calls avoids most 429s. Set 0 on a paid plan.

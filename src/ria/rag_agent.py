@@ -5,6 +5,7 @@ import re
 from dataclasses import dataclass, field
 
 from ria import config
+from ria.prompting import build_messages
 from ria.llm import get_llm, invoke_with_retry
 from ria.retrieval import Hit, Retriever
 

@@ -10,6 +10,7 @@ Every number below was produced by the command shown next to it. Sections betwee
 | RAG example answers (Phase 1) | `gemini-3.5-flash-lite`, RAG thinking `medium` | Run before the cache existed. |
 | SQL accuracy (Phase 2) | `gemini-3.5-flash-lite`, SQL thinking `low` | Cache off. |
 | Phase 4 evaluation (all components, run `run-phase4`) | `gemini-3.5-flash-lite` for router, SQL agent, RAG agent and combiner. Judge: `gemini-3.6-flash` for 15 held-out answers, `gemini-3.5-flash-lite` for the other 37 | Cache off. One model for every answering component. |
+| Phase 5 caching experiment and token report | `gemini-3.5-flash-lite` for every component | Cache off. 20 held-out v1 questions, no judge. |
 | Graph example runs (Phase 3) | `gemini-3.5-flash-lite` for router (low), SQL agent (low), RAG agent (medium), combiner (medium) | Cache on, so some calls in the examples came from cache. |
 
 Nothing in this file was produced by `gemini-3.8-flash`. Its calls early in Phase 1 were discarded. Phase 4 will rerun every component on one model, so the numbers can be compared.
@@ -345,7 +346,12 @@ Known limits of the verifier (not fixed):
 - The router and the whole graph are only tested on 5 real questions so far. There are no router or route-accuracy numbers until Phase 4.
 - The Phase 2 SQL accuracy (14/15) was measured before the Phase 3 SQL guardrail that rejects constants in the SELECT list and before the thinking and cache changes. I did not re-run it, to save API calls. Phase 4 reruns it.
 
-<!-- BEGIN phase4_eval -->
+## Eval v1 (FROZEN, git tag `eval-v1`)
+
+These are the Phase 4 results for the system as of tag `eval-v1` (commit `f3b43ee`). **Do not edit or regenerate them.**
+Later changes to the system are evaluated on a new held-out set (v2) and reported in their own section. The code refuses to overwrite this section.
+
+<!-- BEGIN eval_v1 -->
 ### Phase 4 evaluation (run `run-phase4`)
 
 Status: **COMPLETE**. Command: `python evals/run_evals.py`. Held-out questions were committed before any run in commit `fc2973aff48267cec53ede2965e2f8e6c8f708f0`.
@@ -391,7 +397,7 @@ Most common wrong paths (both splits):
 Gold queries wrongly blocked by the SQL guardrail: 0 of 26.
 
 Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
-<!-- END phase4_eval -->
+<!-- END eval_v1 -->
 
 
 ## Phase 4: reading the evaluation above
@@ -427,3 +433,131 @@ All three gates passed. Read gate 1 with care. The verifier changed **0 of 52** 
 - **My own prompt adds an unsupported phrase.** All faithfulness scores below 5 come from "For a retail customer, ..." added by the RAG prompt rule to answers where the question did not say that (held-out h11, dev p14 and p15) and from one rounding note (q04). That phrase is not in the cited passage. I did not change the prompt, because h11 is a held-out question and fixing the prompt after seeing it would make held-out no longer held-out.
 - The policy `gold_text` field is not used by any metric. Policy answers are scored by gold citation recall and the judge only, so a policy answer with the right citations and a wrong statement would not be caught except by the judge.
 - Wall times include the 4.5 second pacing gaps, so they are not model latency. Phase 5 reports per-call latency.
+
+<!-- BEGIN phase5_caching -->
+### Caching experiment (20 held-out v1 questions, LLM response cache off)
+
+Command: `python evals/caching_experiment.py`. Model: `gemini-3.5-flash-lite` for every component. Complete.
+Real API calls in this experiment: **112** (including the repeat probe).
+
+`question_first` is a comparison layout I built for this test (question first, then instructions, schema and examples).
+`stable_first` is the production layout (instructions, schema and examples first, question last). The baseline never ran in production.
+The two layouts ran one after the other (question_first first), so API load and time of day can differ between them.
+
+| Layout | Queries | LLM calls | Input tokens | Cached input tokens | Cost per query | Cost per 1,000 queries | Median call latency (s) | Median model time per query (s) |
+|---|---|---|---|---|---|---|---|---|
+| question_first (before) | 20 | 54 | 23882 | 0 (0.0%) | $0.001795 | $1.795 | 1.38 | 4.00 |
+| stable_first (after) | 20 | 54 | 23839 | 0 (0.0%) | $0.001710 | $1.710 | 1.26 | 3.47 |
+
+Change from before to after: cached tokens n/a, cost per query -8.452e-05 (-4.7%), median call latency -0.124 (-9.0%), median model time per query -0.5315 (-13.3%).
+
+Cost uses the price table in `config.PRICES` (paid-tier list prices, thinking tokens billed as output). Input tokens per layout differ only by a few tokens, because the same text is sent in a different order.
+
+Average tokens per call by node and layout:
+
+| Layout | Node | Calls | Avg input | Avg output |
+|---|---|---|---|---|
+| question_first | combiner | 4 | 168 | 736 |
+| question_first | rag_agent | 10 | 530 | 569 |
+| question_first | router | 20 | 374 | 91 |
+| question_first | sql_agent.explain | 10 | 146 | 65 |
+| question_first | sql_agent.write | 10 | 897 | 40 |
+| stable_first | combiner | 4 | 159 | 752 |
+| stable_first | rag_agent | 10 | 532 | 535 |
+| stable_first | router | 20 | 373 | 90 |
+| stable_first | sql_agent.explain | 10 | 147 | 27 |
+| stable_first | sql_agent.write | 10 | 896 | 40 |
+
+Repeat probe: the identical SQL prompt (894 input tokens) sent 4 times in a row, production layout:
+
+| Call | Input tokens | Cached tokens | Latency (s) |
+|---|---|---|---|
+| 1 | 894 | 0 | 1.09 |
+| 2 | 894 | 0 | 0.78 |
+| 3 | 894 | 0 | 1.27 |
+| 4 | 894 | 0 | 1.21 |
+
+Sanity check that the layout did not change behaviour (20 questions, not a quality measurement): router correct (20, 20) before and (20, 20) after; exact trajectory (20, 20) before and (20, 20) after; SQL execution accuracy (10, 10) before and (9, 10) after (as correct / total).
+<!-- END phase5_caching -->
+
+<!-- BEGIN phase5_explicit_cache -->
+### Explicit context caching trial (SQL system prompt)
+
+Command: `python evals/explicit_cache_trial.py`. The cached content is the SQL system prompt (schema, rules and 3 few-shot examples).
+
+| Model | Prompt | Prompt tokens | Result |
+|---|---|---|---|
+| `gemini-3.5-flash-lite` | SQL system prompt | 876 | cache NOT created: ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Cached content is too small. total_token_count=879, min_total_token_count=1024', 'status': 'INVALID_ARGUMENT'}} |
+| `gemini-3.6-flash` | SQL system prompt | 876 | cache NOT created: ClientError: 400 INVALID_ARGUMENT. {'error': {'code': 400, 'message': 'Cached content is too small. total_token_count=879, min_total_token_count=1024', 'status': 'INVALID_ARGUMENT'}} |
+| `gemini-3.5-flash-lite` | padded prompt (synthetic: schema repeated once) | 1465 | cache NOT created: ClientError: 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'TotalCachedContentStorageTokensPerModelFreeTier limit exceeded for model gemini-3.5-flash-lite: limit=0, requested=1468', 'status': 'RESOURCE_EXHAUSTED'}} |
+<!-- END phase5_explicit_cache -->
+
+<!-- BEGIN phase5_tokens -->
+### Token economics (per route)
+
+Command: `python evals/token_report.py`. Source records: `caching-stable_first.jsonl` (20 requests: data 6, policy 6, both 4, out_of_scope 4). Model: `gemini-3.5-flash-lite` for every component,
+production prompt layout, LLM response cache off. The judge is not included (it is an evaluation cost, not a serving cost).
+Cost uses `config.PRICES` (paid-tier list prices from the Gemini pricing page; thinking tokens are billed as output). The free tier bills nothing.
+Route groups are small (4 to 12 requests), so treat the averages as rough.
+
+| Route | Requests | LLM calls per query | Avg input tokens | Avg output tokens | Avg total tokens | Cost per query | Cost per 1,000 queries |
+|---|---|---|---|---|---|---|---|
+| data | 6 | 3.0 | 1421 | 160 | 1581 | $0.000827 | $0.827 |
+| policy | 6 | 2.0 | 898 | 645 | 1543 | $0.001881 | $1.881 |
+| both | 4 | 5.0 | 2117 | 1432 | 3548 | $0.004214 | $4.214 |
+| out_of_scope | 4 | 1.0 | 365 | 66 | 431 | $0.000275 | $0.275 |
+| **all (this mix)** | 20 | 2.7 | 1192 | 541 | 1733 | $0.001710 | $1.710 |
+
+Output tokens (which include thinking tokens) are 31% of all tokens in these requests, and cost 8.3 times more per token than input tokens.
+
+Average tokens per call, by node:
+
+| Node | Calls | Avg input | Avg output |
+|---|---|---|---|
+| combiner | 4 | 159 | 752 |
+| rag_agent | 10 | 532 | 535 |
+| router | 20 | 373 | 90 |
+| sql_agent.explain | 10 | 147 | 27 |
+| sql_agent.write | 10 | 896 | 40 |
+
+Share of tokens spent on the schema and on retrieved context. Fixed prompt parts were counted with the Gemini `count_tokens` endpoint
+(schema description 580 tokens, few-shot examples 207, whole SQL system prompt 876). The retrieved context is the
+policy passages sent to the RAG agent, counted per request. Counts are approximate because parts are counted separately from the whole prompt.
+Total input tokens in these requests: 23839. Total tokens including output: 34662.
+
+| Part of the prompt | Tokens | Share of input tokens | Share of all tokens (input + output) |
+|---|---|---|---|
+| Schema description (sent in every SQL write call) | 5800 | 24.3% | 16.7% |
+| Few-shot SQL examples | 2070 | 8.7% | 6.0% |
+| Other SQL instructions and rules | 890 | 3.7% | 2.6% |
+| Retrieved policy context (5 passages in every RAG call) | 2664 | 11.2% | 7.7% |
+<!-- END phase5_tokens -->
+
+
+## Phase 5: observability and token economics
+
+What was built:
+
+- **Tracing** (`src/ria/tracing.py`). Every LLM call is logged to `logs/llm_calls.jsonl` with node, model, input, output and cached tokens, reasoning tokens, latency (model time only), wait time, cost and cache hit. Every request is logged to `logs/traces.jsonl` with the question, route, trajectory, verified flag, total tokens, total cost, model latency, wall time and the list of its calls. Cache hits add no tokens, cost or latency to a request total. SQL repairs are logged to `logs/sql_repairs.jsonl` with the stage that failed (validation or execution), the failed SQL and the error.
+- **Price table** in `config.PRICES` (USD per million tokens, editable): `gemini-3.5-flash-lite` input 0.30, output 2.50, cached input 0.03. I read the prices from the Gemini pricing page through a page summariser, so please check them against the page. The free tier bills nothing, so all costs below are what the same usage would cost on a paid plan.
+- **Langfuse**: skipped. No Langfuse keys are in `.env`. The code attaches the Langfuse callback only when both keys are set and the package imports, and never raises. Tests cover the skip and the failure case. I have not tested it against a live Langfuse account.
+- **Reports**: `evals/token_report.py` (section "Token economics"), `evals/caching_experiment.py` (section "Caching experiment"), `evals/explicit_cache_trial.py` (section "Explicit context caching trial").
+- **Nightly job** `.github/workflows/nightly-eval.yml`: installs, builds the vector index and the DuckDB database, runs the offline tests, then runs a fixed 10-question subset (`evals/nightly_subset.json`: 3 data, 3 policy, 2 both, 2 out of scope, all from the v1 held-out set) on the real model with the cache off, no judge and no write to this file. The job fails if a test fails or a gate fails. I cannot run GitHub Actions from here (this folder has no remote). What I did run: the YAML parses, the exact eval command ran locally on all 10 questions (10 of 10 questions answered, all three gates passed, exit code 0, 30 real API calls), and a test (`tests/test_nightly_gate.py`) proves that an answered out of scope question gives exit code 1. The Hugging Face model download and the dataset download steps in the workflow are untested in CI.
+- Eval v1 is tagged `eval-v1` and its results section is frozen. The code refuses to overwrite it.
+- Tests: `pytest` gives 118 passed.
+
+### Reading the caching experiment
+
+- **Caching did not trigger on this model.** Cached tokens were 0 in both layouts and 0 in the identical-prompt probe (the same 894-token SQL prompt sent 4 times in a row). The SQL prompt is far smaller than the minimum the caching docs list for implicit caching on the newer Flash models (4,096 tokens on `gemini-3.6-flash`). The docs give no minimum for `gemini-3.5-flash-lite`. My prompts are 150 to 900 tokens.
+- **Explicit caching is blocked in two ways.** The API refuses to cache the SQL prompt because it has 879 tokens and the minimum is 1,024. A padded prompt that passes the minimum is refused too, because the free tier has a cached storage limit of 0 for this model. So explicit caching is not possible here without a paid plan, and a longer prompt.
+- **The before and after difference is not a caching effect.** Input tokens are almost the same in both layouts (23,882 and 23,839 tokens, input cost $0.007165 and $0.007152). The 4.7% lower cost per query in the second run comes from fewer output tokens (11,494 and 10,823), which are mostly thinking tokens and vary from run to run. The latency difference has the same cause plus one 22.8 second outlier in the first run. I would not claim any improvement from the prompt layout.
+- **Even perfect caching would help little.** Output tokens are about 79% of the cost in these runs and input tokens about 21%. Cached input is billed at one tenth of the input price here. So if every input token were cached, the saving would be at most about 19% of cost. Only the repeated static parts of the prompts could be cached, so the real ceiling is lower.
+- **The biggest cost lever is thinking tokens, not the prompt.** RAG and combiner calls average 535 and 752 output tokens for answers of a few sentences, because their thinking level is `medium`. I did not change this. Lowering it would change answer quality, which I have not measured.
+- **The model is not fully repeatable.** On held-out question h14 ("total value of returns in 2010") the SQL agent returned the gold answer in the first run and in the Phase 4 run, but in the second experiment run it added `is_merchandise = TRUE`, which gave a different number (245,842 instead of 679,179). Temperature 0 is requested but this model ignores it. So single-run accuracy numbers, including the 100% SQL accuracy in eval v1, carry run-to-run noise that I have not measured.
+
+### Reading the token report
+
+- Per query, on this 20 question mix, the cost is about $0.0017 ($1.71 per 1,000 queries). By route, per 1,000 queries: data $0.83, policy $1.88, both $4.21, out of scope $0.28. A `both` question costs about 15 times an out of scope question, because it makes 5 calls and the RAG and combiner calls produce long thinking output.
+- The schema description is 24% of all input tokens (17% of all tokens). The retrieved policy context is 11% of input tokens. The few-shot examples are 9%. Output tokens (thinking included) are 31% of all tokens.
+- Route groups hold 4 to 6 requests each, so the per-route numbers are rough. The token report is run again at the end of this phase on a larger set (see the v2 section).
+- There were no SQL repairs in the 50 requests run after repair logging was added, so `logs/sql_repairs.jsonl` does not exist yet. The reason for the earlier h04 repair is still unknown. The repair logger has been tested only with scripted fake models.

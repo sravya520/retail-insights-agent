@@ -20,6 +20,8 @@ from sqlglot import exp
 
 from ria import config
 from ria.llm import LLMError, get_llm, invoke_with_retry
+from ria.prompting import build_messages
+from ria.tracing import log_sql_repair
 from ria.sql_db import SCHEMA_DESCRIPTION, connect_readonly, get_schema
 
 MAX_ROWS = 200
@@ -197,6 +199,7 @@ class SQLResult:
     attempts: int = 0
     error: str | None = None
     repaired: bool = False
+    repair_log: list[dict[str, Any]] = field(default_factory=list)  # why each repair was needed
 
     @property
     def ok(self) -> bool:
@@ -241,7 +244,7 @@ class SQLAgent:
 
     def run(self, question: str) -> SQLResult:
         result = SQLResult(question)
-        messages = [("system", SYSTEM_PROMPT), ("human", f"Question: {question}\nSQL:")]
+        messages = build_messages(SYSTEM_PROMPT, f"Question: {question}\nSQL:")
         try:
             sql = self._generate(messages, "sql_agent.write")
         except LLMError as exc:
@@ -262,12 +265,22 @@ class SQLAgent:
                 if attempt == 2:
                     break
                 result.repaired = True
+                # Log WHY a repair was needed: the stage that failed, the SQL that failed and the error.
+                entry = {"question": question, "stage": "validation" if isinstance(exc, SQLValidationError) else "execution",
+                         "failed_sql": sql, "error": str(exc)[:300], "repair_succeeded": None}
+                result.repair_log.append(entry)
                 repair = messages + [("ai", sql), ("human", REPAIR_TEMPLATE.format(sql=sql, error=exc))]
                 try:
                     sql = self._generate(repair, "sql_agent.repair")
                 except LLMError as llm_exc:
                     result.error = f"{exc} (repair failed: {llm_exc})"
+                    entry["repair_succeeded"] = False
+                    log_sql_repair(entry)
                     break
+        for entry in result.repair_log:
+            if entry["repair_succeeded"] is None:
+                entry["repair_succeeded"] = result.error is None
+                log_sql_repair(entry)
         if result.error:
             result.answer = f"I could not answer this from the sales data. The query failed: {result.error}"
             return result

@@ -18,7 +18,7 @@ from typing import Any, Callable
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_random_exponential
 
 from ria import config
-from ria.tracing import log_llm_call, usage_from_response
+from ria.tracing import langfuse_callbacks, log_llm_call, usage_from_response
 
 _pace_lock = threading.Lock()
 _last_call_end = 0.0
@@ -72,6 +72,7 @@ def get_llm(role: str = "default", model: str | None = None, temperature: float 
         temperature=config.LLM_TEMPERATURE if temperature is None else temperature,
         google_api_key=config.GOOGLE_API_KEY,
         max_retries=1,  # Tenacity owns the retry policy
+        callbacks=langfuse_callbacks() or None,  # Langfuse only when keys are set
         **kwargs,
     )
 

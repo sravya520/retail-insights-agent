@@ -1,4 +1,4 @@
-"""Phase 4 evaluation harness.
+"""Evaluation harness (Phase 4, reused for v2 and the nightly subset).
 
 Runs every question in evals/questions.jsonl through the full graph (held-out first, then dev), judges the answers,
 computes metrics per split, checks the gates, and writes docs/results.md.
@@ -8,7 +8,10 @@ computes metrics per split, checks the gates, and writes docs/results.md.
   * If the daily quota runs out, the run stops cleanly, saves what it has and reports how far it got.
     Resume with:  python evals/run_evals.py --resume <run_id>
 
-Run: python evals/run_evals.py            (new run)
+Run: python evals/run_evals.py            (new run, v1 questions)
+     python evals/run_evals.py --questions evals/questions_v2.jsonl --label eval_v2 --questions-commit <hash>
+     python evals/run_evals.py --subset evals/nightly_subset.json --no-judge --no-write   (nightly CI job)
+Eval v1 is frozen (git tag eval-v1). The code refuses to overwrite its results section.
      python evals/run_evals.py --report <run_id>   (recompute the report from saved records, no API calls)
 """
 from __future__ import annotations
@@ -24,6 +27,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from ria import config  # noqa: E402
 from ria import eval_metrics as m  # noqa: E402
+from ria.eval_record import GOLD_FIELDS, record_from_state  # noqa: E402
 from ria.graph import ask, build_graph, default_services  # noqa: E402
 from ria.judge import JudgePool, evidence_text  # noqa: E402
 from ria.llm import LLMError  # noqa: E402
@@ -53,39 +57,30 @@ def is_daily_quota(exc: BaseException) -> bool:
     return "PerDay" in str(exc) or "per day" in str(exc)
 
 
-def run_one(app, pool: JudgePool, q: dict, run_id: str) -> dict:
+def run_one(app, pool: JudgePool | None, q: dict, run_id: str) -> dict:
     offset = call_log_size()
-    rec = {k: q.get(k) for k in ("id", "split", "question", "expected_route", "expected_trajectory", "ordered",
-                                 "gold_answer", "gold_citations", "gold_text")}
     started = time.perf_counter()
     try:
-        out = ask(app, q["question"], thread_id=f"{run_id}-{q['id']}")
+        out = ask(app, q["question"], thread_id=f"{run_id}-{q['id']}", label=run_id)
     except LLMError as exc:
         if is_daily_quota(exc):
             raise
-        rec.update(error=str(exc)[:300], route=None, trajectory=None, answer="", verified=None, removed=[])
-        rec["latency_s"] = round(time.perf_counter() - started, 3)
-        rec["calls"] = len(calls_since(offset))
+        rec = {k: q.get(k) for k in GOLD_FIELDS}
+        rec.update(error=str(exc)[:300], route=None, trajectory=None, answer="", verified=None, removed=[],
+                   latency_s=round(time.perf_counter() - started, 3), n_calls=len(calls_since(offset)))
         return rec
-    sql, rag = out.get("sql"), out.get("rag")
-    rec.update(
-        standalone_question=out.get("standalone_question"), route=out.get("route"), trajectory=out.get("trajectory"),
-        answer=out.get("answer", ""), draft=out.get("draft", ""), verified=out.get("verified"),
-        removed=(out.get("verifier") or {}).get("removed", []), latency_s=out["latency_s"], error=None,
-        sql={k: sql[k] for k in ("sql", "columns", "rows", "error", "repaired")} if sql else None,
-        rag={"chunks": rag["chunks"], "citations": rag["citations"]} if rag else None)
+    rec = record_from_state(q, out)
     judge_calls_offset = call_log_size()
-    if out.get("route") != "out_of_scope" and rec["answer"]:
+    if pool is not None and out.get("route") != "out_of_scope" and rec["answer"]:
         try:
-            res = pool.score(q["question"], rec["answer"], evidence_text(rec["sql"], (rag or {}).get("chunks")))
+            res = pool.score(q["question"], rec["answer"], evidence_text(rec["sql"], (rec["rag"] or {}).get("chunks")))
             rec["judge"] = {"faithfulness": res.faithfulness, "relevance": res.relevance,
                             "unsupported_claims": res.unsupported_claims, "model": res.model}
         except LLMError as exc:
             if is_daily_quota(exc) or "No judge model" in str(exc):
                 raise
             rec["judge"], rec["judge_error"] = None, str(exc)[:200]
-    calls = calls_since(offset)
-    rec["calls"] = len(calls)
+    rec["n_calls"] = len(calls_since(offset))
     rec["judge_calls"] = len(calls_since(judge_calls_offset))
     return rec
 
@@ -101,16 +96,22 @@ def fmt_ratio(pair: tuple, bound: bool = False) -> str:
     return text
 
 
+def fmt_cost(records: list, bound: bool = False) -> str:
+    costs = [r["usage"]["cost_usd"] for r in records if r.get("usage")]
+    return f"${sum(costs) / len(costs):.6f}" if costs else "n/a"
+
+
 def fmt_latency(records: list, bound: bool = False) -> str:
     value = m.median_latency(records)
     return f"{value:.1f}" if value else "n/a"
 
 
-def build_report(run_id: str, records: list[dict], meta: dict) -> str:
+def build_report(run_id: str, records: list[dict], meta: dict, label: str = "eval_v1", commit: str = HELDOUT_COMMIT,
+                 questions_path: Path = QUESTIONS) -> str:
     splits = {"heldout": [r for r in records if r["split"] == "heldout"], "dev": [r for r in records if r["split"] == "dev"]}
     schema = get_schema(connect_readonly())
     unsafe = json.loads((ROOT / "evals" / "unsafe_sql.json").read_text(encoding="utf-8"))
-    gold_sqls = [q["gold_sql"] for q in read_jsonl(QUESTIONS) if q.get("gold_sql")]
+    gold_sqls = [q["gold_sql"] for q in read_jsonl(questions_path) if q.get("gold_sql")]
 
     def row(label: str, fn) -> str:
         return f"| {label} | {fn(splits['heldout'], True)} | {fn(splits['dev'], False)} |"
@@ -144,9 +145,9 @@ def build_report(run_id: str, records: list[dict], meta: dict) -> str:
     calls = meta.get("calls", {})
     status = "COMPLETE" if meta["completed"] == meta["total"] else f"PARTIAL: {meta['completed']} of {meta['total']} questions finished ({meta['stop_reason']})"
 
-    return f"""### Phase 4 evaluation (run `{run_id}`)
+    return f"""### Evaluation {label} (run `{run_id}`)
 
-Status: **{status}**. Command: `python evals/run_evals.py`. Held-out questions were committed before any run in commit `{HELDOUT_COMMIT}`.
+Status: **{status}**. Command: `python evals/run_evals.py` with questions from `{Path(questions_path).name}`. These held-out questions were committed before any run, in commit `{commit}`.
 
 - Answering model for every component: `{config.GEMINI_MODEL}` (router low, SQL low, RAG medium, combiner medium thinking). LLM cache: **off**.
 - Judge: {judge_note}. By split: {judge_by_split}. Judge models that ran out of free daily quota during the run: {dead}. {"Some items were self-judged (the answering model scored its own answers), which can inflate scores. See the limits below." if self_judged else "The judge was a different model from the answering model."}
@@ -181,6 +182,7 @@ Violating ids: heldout {g1['heldout'][2] or 'none'}, dev {g1['dev'][2] or 'none'
 | Answers the verifier changed | {vs['heldout']['answers_changed']}/{vs['heldout']['answers_checked']} | {vs['dev']['answers_changed']}/{vs['dev']['answers_checked']} |
 | Sentences removed (number / citation) | {vs['heldout']['removed_unsupported_number']} / {vs['heldout']['removed_invalid_citation']} | {vs['dev']['removed_unsupported_number']} / {vs['dev']['removed_invalid_citation']} |
 {row('Median wall time per question (s, includes pacing gaps)', fmt_latency)}
+{row('Answering cost per question (USD, paid-tier list prices, judge excluded)', fmt_cost)}
 
 Most common wrong paths (both splits):
 
@@ -192,10 +194,12 @@ Judge calibration (agreement with human labels): **not computed yet.** It needs 
 """
 
 
-def summarise(run_id: str, records: list[dict], meta: dict) -> None:
-    report = build_report(run_id, records, meta)
+def summarise(run_id: str, records: list[dict], meta: dict, label: str, commit: str, questions_path: Path,
+              write: bool = True) -> None:
+    report = build_report(run_id, records, meta, label, commit, questions_path)
     (RUNS / run_id / "report.md").write_text(report, encoding="utf-8")
-    update_section("phase4_eval", report)
+    if write:
+        update_section(label, report)  # raises FrozenSectionError for eval_v1
     print(report)
 
 
@@ -204,10 +208,20 @@ def main() -> None:
     parser.add_argument("--resume", help="run id to continue")
     parser.add_argument("--report", help="rebuild the report from saved records, no API calls")
     parser.add_argument("--limit", type=int, help="only the first N questions of each split (for a smoke test)")
+    parser.add_argument("--questions", default=str(QUESTIONS), help="questions file (default: the v1 file)")
+    parser.add_argument("--label", default="eval_v2", help="results section name in docs/results.md (eval_v1 is frozen)")
+    parser.add_argument("--questions-commit", default=HELDOUT_COMMIT, help="commit that added the questions, recorded in the report")
+    parser.add_argument("--subset", help="JSON file with a list of question ids to run (nightly CI job)")
+    parser.add_argument("--no-judge", action="store_true", help="skip the LLM judge (saves quota)")
+    parser.add_argument("--no-write", action="store_true", help="do not write docs/results.md")
     args = parser.parse_args()
 
     config.LLM_CACHE_ENABLED = False  # final eval: cache OFF
-    questions = read_jsonl(QUESTIONS)
+    questions_path = Path(args.questions)
+    questions = read_jsonl(questions_path)
+    if args.subset:
+        wanted = json.loads(Path(args.subset).read_text(encoding="utf-8"))
+        questions = [q for q in questions if q["id"] in wanted]
     ordered = [q for q in questions if q["split"] == "heldout"] + [q for q in questions if q["split"] == "dev"]
     if args.limit:
         ordered = [q for s in ("heldout", "dev") for q in [x for x in ordered if x["split"] == s][:args.limit]]
@@ -226,7 +240,7 @@ def main() -> None:
     if not args.report:
         done = {r["id"] for r in records}
         app = build_graph(default_services())
-        pool = JudgePool(config.JUDGE_MODELS)
+        pool = None if args.no_judge else JudgePool(config.JUDGE_MODELS)
         try:
             for q in ordered:
                 if q["id"] in done:
@@ -236,11 +250,11 @@ def main() -> None:
                 with records_path.open("a", encoding="utf-8") as f:
                     f.write(json.dumps(rec, ensure_ascii=False, default=str) + "\n")
                 print(f"{q['split']:8s} {q['id']:4s} route={rec.get('route')} traj_ok={rec.get('trajectory') == q['expected_trajectory']} "
-                      f"judge={(rec.get('judge') or {}).get('faithfulness')} calls={rec.get('calls')} t={rec.get('latency_s')}s", flush=True)
+                      f"judge={(rec.get('judge') or {}).get('faithfulness')} calls={rec.get('n_calls')} t={rec.get('latency_s')}s", flush=True)
         except LLMError as exc:
             meta["stop_reason"] = f"stopped on error: {str(exc)[:200]}"
             print("STOPPING CLEANLY:", meta["stop_reason"], flush=True)
-        meta["judge_models_dead"] = sorted(pool.dead)
+        meta["judge_models_dead"] = sorted(pool.dead) if pool else []
 
     meta["completed"] = len(records)
     log = calls_since(meta["log_start"])
@@ -251,7 +265,7 @@ def main() -> None:
                      "by_node": {n: sum(c["node"] == n for c in real) for n in sorted({c["node"] for c in real})}}
     meta["model"] = config.GEMINI_MODEL
     meta_path.write_text(json.dumps(meta, indent=1), encoding="utf-8")
-    summarise(run_id, records, meta)
+    summarise(run_id, records, meta, args.label, args.questions_commit, questions_path, write=not args.no_write)
     gates_failed = m.gate_unsafe_sql_blocked(json.loads((ROOT / "evals" / "unsafe_sql.json").read_text(encoding="utf-8")),
                                              get_schema(connect_readonly()))[0]
     gates_failed += m.gate_no_unsupported_content(records)[0] + m.gate_out_of_scope_refused(records)[0]

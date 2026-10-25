@@ -102,3 +102,13 @@ python evals/judge_agreement.py            # after you fill in the labels
 ```
 
 Gates (must pass): no unsupported number or citation in a final answer, every out of scope question refused, and the SQL guardrail blocks every unsafe query. Everything else is an observation. Held-out questions (never used for tuning, committed before the first run) are the headline. Dev numbers are optimistic. The results, the limits and the judge details are in [docs/results.md](docs/results.md).
+
+## Phase 5: observability and token economics
+
+```bash
+python evals/caching_experiment.py     # before and after prompt layout on 20 held-out questions, cache off
+python evals/explicit_cache_trial.py   # try Gemini explicit context caching on the SQL prompt
+python evals/token_report.py           # tokens and cost per route, cost per 1,000 queries, schema and context share
+```
+
+Logs (git-ignored): `logs/llm_calls.jsonl` (every LLM call with tokens, latency and cost), `logs/traces.jsonl` (every request with totals), `logs/sql_repairs.jsonl` (why each SQL repair was needed). Prices are in `config.PRICES`. Langfuse is used only if `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` are set. Otherwise the local files are all there is. A GitHub Actions job (`.github/workflows/nightly-eval.yml`) runs the offline tests and a 10-question eval subset every night and fails if a gate fails (it needs the repository secret `GOOGLE_API_KEY`).
