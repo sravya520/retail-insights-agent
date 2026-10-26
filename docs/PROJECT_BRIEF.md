@@ -44,8 +44,8 @@ Design principle: the LLM decides and explains. Code does the maths and checks t
 | SQL | DuckDB (default), Google BigQuery (optional, free sandbox, google-cloud-bigquery), sqlglot |
 | Data loading | pandas, openpyxl, pypdf, reportlab |
 | App | FastAPI, uvicorn, Streamlit, httpx |
-| Testing and CI | pytest (170 tests), GitHub Actions workflow |
-| Packaging | Dockerfile (not built yet) |
+| Testing and CI | pytest (170 tests), GitHub Actions nightly workflow (passing on GitHub) |
+| Hosting and packaging | Streamlit Community Cloud (live demo), Dockerfile (not built yet) |
 
 - **Answering model:** `gemini-3.5-flash-lite` for every component. Thinking level: router low, SQL low, RAG medium, combiner medium.
 - **Judge model:** `gemini-3.6-flash` when it had quota, otherwise the answering model (self-judging).
@@ -219,11 +219,11 @@ Later in the session:
 - The nightly eval command was run locally: 10 of 10 questions, exit code 0, 27 calls.
 - Eval v2 and the dev re-run (section 6b).
 - BigQuery warehouse option, data loaded, parity check 67 of 67 (section 6c).
+- **Nightly workflow on GitHub:** a manual run on 2026-10-26 passed every step, including the 10-question eval with gates (https://github.com/sravya520/retail-insights-agent/actions/runs/40386120861). The first scheduled run failed only because the API key secret was not set yet.
+- **Live demo:** https://retail-insights-agent-ehpjzeospfrryxgbpejme7.streamlit.app/ (Streamlit Community Cloud, separate demo API key). Checked on 2026-10-27: a pre-computed example opens with its full "How this was answered" panel.
 
 **Pending (needed to finish):**
-1. **Add the `GOOGLE_API_KEY` repository secret** on GitHub. Until then the nightly workflow fails every night. Then run it once by hand (Actions tab, `workflow_dispatch`). It has never run on GitHub.
-2. **Deploy to Streamlit Community Cloud** with a separate demo API key (steps in `docs/DEPLOY.md`), then add the demo URL to the README. Memory was close to Streamlit's documented minimum on the dev machine, so the deployment may be unstable.
-3. **Judge calibration:** label the 20 answers in `evals/human_labels.jsonl` (0 of 20 done), then run `python evals/judge_agreement.py`.
+1. **Judge calibration:** label the 20 answers in `evals/human_labels.jsonl` (0 of 20 done), then run `python evals/judge_agreement.py`.
 
 **Optional:**
 - Build and test the Docker image (Docker Desktop was not running).
@@ -244,13 +244,13 @@ Later in the session:
 - Built a LangGraph multi-agent assistant that answers business questions over retail sales data (guarded text-to-SQL on DuckDB) and company policy documents (RAG with BGE embeddings, Chroma and hybrid BM25 plus semantic search). It routes each question to SQL, RAG or both, keeps conversation memory and cites policy clauses.
 - On a held-out set: router and trajectory 20 of 20; SQL 10 of 10 on the frozen run (9 to 10 of 10 across three runs); 51 of 51 unsafe queries blocked by the gates. A deterministic verifier checks numbers and citations. A guardrail was added after the SQL agent passed invented numbers through query constants, and it is covered by tests.
 - Retrieval on 20 dev questions: hybrid recall@5 of 0.95 against 0.70 for keyword search. Do not claim hybrid beat vector search (both are 0.95).
-- Traced tokens, cost and latency per call. Cost is $0.28 to $4.21 per 1,000 queries by route, at list prices. Output tokens (mostly thinking) are 79% of cost. Added a nightly GitHub Actions eval with gates (it has not run on GitHub yet).
+- Traced tokens, cost and latency per call. Cost is $0.28 to $4.21 per 1,000 queries by route, at list prices. Output tokens (mostly thinking) are 79% of cost. Added a nightly GitHub Actions eval with gates, which passes on GitHub.
 - Added Google BigQuery as an optional warehouse for the SQL agent: the same guardrails, with sqlglot translating DuckDB SQL to BigQuery, a read-only service account and a bytes-billed cap. 67 of 67 queries gave the same outcome on DuckDB and BigQuery, with a median of 25.2 MB billed per query.
 - On a second fresh held-out set (v2, run once after the fixes): router and trajectory 19 of 20, SQL 10 of 10, retrieval recall 7 of 8. All gates passed, and the judge was a different model from the answering model.
+- Deployed a public demo on Streamlit Community Cloud (https://retail-insights-agent-ehpjzeospfrryxgbpejme7.streamlit.app/) with usage limits that protect the free model quota and 20 pre-computed examples that cost nothing.
 - **Never claim:**
   - caching savings
   - judge calibration
-  - a live demo
   - cloud deployment of the app (not done yet)
   - a full LLM eval on BigQuery (only the parity check and one smoke test were run)
   - AWS or Athena (not done)

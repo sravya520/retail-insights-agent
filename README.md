@@ -6,7 +6,7 @@ Design principle: **the LLM decides and explains. Code does the maths and checks
 
 This is a portfolio project. It was built to show retrieval, text-to-SQL, agent orchestration, evaluation and observability end to end, with honest numbers.
 
-**Live demo:** not deployed yet. The exact steps are in [docs/DEPLOY.md](docs/DEPLOY.md). Until then you can run it locally (below).
+**Live demo:** https://retail-insights-agent-ehpjzeospfrryxgbpejme7.streamlit.app/ (Streamlit Community Cloud, free tier). Live questions are limited to protect the free model quota. The 20 pre-computed examples in the sidebar always work and use no quota. Deploy steps: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 > **The policy documents are synthetic.** Northwind Gifts is a fictional company. The six policy documents in `data/docs/` were written for this demo, so the rules are specific and testable. They are not real company policies. The sales data is the real UCI "Online Retail II" dataset (a UK online gift retailer, December 2009 to December 2011).
 
@@ -274,8 +274,9 @@ Full table: section "cloud_bigquery_parity" in `docs/results.md`.
 - **Known weaknesses.** Retrieval misses dev question p10 and v2 question v09 (a vocabulary gap: "room spray" against "aerosols"). The judge cannot detect retrieval misses. The router refused one held-out question that the policy documents do not cover (v11). If the SQL agent's explanation step fails, the answer is a safe message plus the result rows instead of a written explanation.
 - **Free tier limits.** The API's own error message gives a free limit of 500 requests a day for the answering model (`python scripts/doc_facts.py`). Latency swings with API load. Explicit context caching is not available on the free tier.
 - **Prices** in `config.PRICES` were taken from the official pricing page on 2026-10-25 and will change.
-- **Memory.** The agent plus the embedding model came close to the documented minimum memory of Streamlit Community Cloud on my machine (found during development, raw output not saved), so a deployment there may be unstable.
-- **Not tested here:** the Dockerfile, the GitHub Actions nightly job on GitHub itself, Langfuse against a live account, and the Streamlit Cloud deployment. A clean clone was started locally with `scripts/start.sh` (found during development, raw output not saved). See `docs/DEPLOY.md` and the Phase 6 section of `docs/results.md`.
+- **Memory.** The agent plus the embedding model came close to the documented minimum memory of Streamlit Community Cloud on my machine (found during development, raw output not saved). The demo is deployed there and opened on 2026-10-27, but it may restart under load, and a sleeping app takes a while to wake up.
+- **Nightly job on GitHub:** the first scheduled run failed because the `GOOGLE_API_KEY` secret was not set yet. After adding it, a manual run on 2026-10-26 passed every step, including the 10-question eval with gates ([run 40386120861](https://github.com/sravya520/retail-insights-agent/actions/runs/40386120861)).
+- **Not tested here:** the Dockerfile and Langfuse against a live account. A clean clone was started locally with `scripts/start.sh` (found during development, raw output not saved). See `docs/DEPLOY.md` and the Phase 6 section of `docs/results.md`.
 
 ## What I would do next
 

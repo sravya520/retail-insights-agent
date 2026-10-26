@@ -33,7 +33,7 @@ Versions are the ones installed in my environment (command: `python -c "import i
 | python-dotenv, tzdata | 1.2.4, 2026.5 | Secrets from `.env`, US Pacific quota day | `config.py`, `limits.py` |
 | pytest | 9.1.1 | 170 offline tests | `tests/` |
 
-Listed but not used: `requests` is in `requirements.txt` but no repository code imports it. `numpy` is not imported directly. `langfuse` is referenced in `tracing.py` but is not installed, so it never ran. GitHub Actions (`.github/workflows/nightly-eval.yml`) and Docker (`Dockerfile`) exist as files but never ran (see sections 10 and 11).
+Listed but not used: `requests` is in `requirements.txt` but no repository code imports it. `numpy` is not imported directly. `langfuse` is referenced in `tracing.py` but is not installed, so it never ran. Docker (`Dockerfile`) exists as a file but was never built (see section 11). The GitHub Actions workflow has run on GitHub (section 10).
 
 ## 3. Data
 
@@ -144,17 +144,17 @@ Combined with the 20 eval v2 questions (40 requests), the cost is $1.713 per 1,0
 
 | Fact | Status | Source |
 |---|---|---|
-| Nightly workflow on GitHub (`.github/workflows/nightly-eval.yml`, scheduled and manual) | **Untested.** It has never run on GitHub, because the repository is not on GitHub | `git remote -v` prints nothing |
+| Nightly workflow on GitHub (`.github/workflows/nightly-eval.yml`, scheduled and manual) | **Passed** on a manual run on 2026-10-26 (commit `5346e5a`): offline gate tests and the 10-question eval with gates, all steps green. The first scheduled run failed before the `GOOGLE_API_KEY` secret was added | GitHub Actions run 40386120861 (https://github.com/sravya520/retail-insights-agent/actions/runs/40386120861) |
 | The workflow's eval command run locally | 10 of 10 questions finished, all three gates passed, exit code 0, 27 model calls | Phase 5 section of `docs/results.md`; call count from `evals/runs/nightly-local/meta.json`, local only |
 | Exit codes (0 pass, 1 gate failed, 2 run stopped early) | Tested: 3 tests pass | `tests/test_nightly_gate.py`, part of `pytest` |
-| Offline test suite | 160 passed | `pytest`, run on 2026-10-25 |
+| Offline test suite | 170 passed | `pytest`, run on 2026-10-27 |
 
 ## 11. Deployment status and links
 
 | Item | Status |
 |---|---|
-| GitHub URL | **None.** No remote is set up for this folder (`git remote -v` prints nothing) |
-| Demo URL | **Not deployed** |
+| GitHub URL | https://github.com/sravya520/retail-insights-agent |
+| Demo URL | https://retail-insights-agent-ehpjzeospfrryxgbpejme7.streamlit.app/ (Streamlit Community Cloud). Checked on 2026-10-27: the page loads and a pre-computed example shows the answer, route, trajectory, SQL, verified flag, tokens, cost and latency |
 | Docker image | Not built. The Dockerfile is untested |
 | What was tested instead | A clean clone started with `scripts/start.sh` rebuilt the database and the vector index from committed files, and the API and UI health checks passed. Found during development, raw output not saved (Phase 6 section of `docs/results.md`) |
 
