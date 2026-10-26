@@ -17,6 +17,8 @@ README = ROOT / "README.md"
 TABLES = {
     "eval_v1_gates": ("eval_v1", "| Gate | Result | Detail |"),
     "eval_v1_obs": ("eval_v1", "| Metric | Held-out | Dev |"),
+    "eval_v2_gates": ("eval_v2", "| Gate | Result | Detail |"),
+    "eval_v2_obs": ("eval_v2", "| Metric | Held-out | Dev |"),
     "tokens_route": ("phase5_tokens", "| Route | Requests |"),
     "tokens_share": ("phase5_tokens", "| Part of the prompt |"),
     "caching_main": ("phase5_caching", "| Layout | Queries |"),

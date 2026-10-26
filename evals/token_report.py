@@ -37,6 +37,7 @@ def context_text(chunks: list[dict]) -> str:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--records", nargs="*", type=Path, default=DEFAULT_RECORDS)
+    parser.add_argument("--section", default="phase5_tokens", help="results section to write")
     args = parser.parse_args()
 
     records = [r for p in args.records for r in read_jsonl(p) if r.get("usage")]
@@ -69,7 +70,7 @@ def main() -> None:
     sources = ", ".join(f"`{p.name}`" for p in args.records)
     mix = ", ".join(f"{route} {s['requests']}" for route, s in routes.items())
     out_share = overall["output_tokens"] / (overall["input_tokens"] + overall["output_tokens"])
-    update_section("phase5_tokens", f"""### Token economics (per route)
+    update_section(args.section, f"""### Token economics (per route), section {args.section}
 
 Command: `python evals/token_report.py`. Source records: {sources} ({len(records)} requests: {mix}). Model: `{config.GEMINI_MODEL}` for every component,
 production prompt layout, LLM response cache off. The judge is not included (it is an evaluation cost, not a serving cost).

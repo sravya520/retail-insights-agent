@@ -94,9 +94,22 @@ def thinking_share() -> None:
           f"({100 * reasoning / out:.1f}% of output, {100 * reasoning * PRICE['output'] / total:.1f}% of cost)")
 
 
+def retail_phrase() -> None:
+    print("6. Policy answers that add 'for a retail customer' when the question does not mention retail (dev split)")
+    for name in ("run-phase4/records.jsonl", "run-dev-after-fixes/records.jsonl"):
+        path = RUNS / name
+        if not path.exists():
+            continue
+        recs = [r for r in read(path) if r.get("split") == "dev" and r.get("route") in ("policy", "both")]
+        hits = [r["id"] for r in recs if re.search(r"for a retail customer", r.get("answer", ""), re.I)
+                and not re.search(r"retail", r["question"], re.I)]
+        print(f"   {name}: {len(hits)} of {len(recs)}" + (f" ({', '.join(hits)})" if hits else ""))
+
+
 if __name__ == "__main__":
     heldout_sql_accuracy()
     cost_shares()
     quota_limit()
     thinking_share()
     eval_v1_details()
+    retail_phrase()
