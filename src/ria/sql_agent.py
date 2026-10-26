@@ -4,13 +4,13 @@ Guardrails (all in code, none in the prompt):
   * sqlglot parses the query. Exactly one SELECT statement is allowed (WITH ... SELECT is fine).
   * Only known tables and columns are allowed. File reading and system functions are blocked.
   * LIMIT 200 is added when missing, and any larger LIMIT is lowered to 200.
-  * 5 second timeout, read-only connection.
+  * 5 second timeout, read-only connection (DuckDB). On BigQuery: read-only service account, job timeout and a
+    maximum-bytes-billed cap (see ria.warehouse). The query is validated in the DuckDB dialect on both.
   * On a validation or execution error the error goes back to the LLM once for a repair. Then we fail clearly.
 """
 from __future__ import annotations
 
 import re
-import threading
 from decimal import Decimal
 from dataclasses import dataclass, field
 from typing import Any
@@ -23,7 +23,8 @@ from ria import config
 from ria.llm import LLMError, get_llm, invoke_with_retry
 from ria.prompting import build_messages
 from ria.tracing import log_sql_repair
-from ria.sql_db import SCHEMA_DESCRIPTION, connect_readonly, get_schema
+from ria.sql_db import SCHEMA_DESCRIPTION
+from ria.warehouse import DuckDBWarehouse, SQLExecutionError, Warehouse, default_warehouse
 
 MAX_ROWS = 200
 TIMEOUT_SECONDS = 5.0
@@ -41,10 +42,6 @@ FORBIDDEN_FUNCTION_PREFIXES = ("read_", "glob", "sniff_", "query", "getenv", "cu
 
 class SQLValidationError(ValueError):
     """The SQL is not allowed to run."""
-
-
-class SQLExecutionError(RuntimeError):
-    """The SQL was allowed but failed or timed out."""
 
 
 def _cte_names(tree: exp.Expression) -> set[str]:
@@ -122,19 +119,8 @@ def validate_sql(sql: str, schema: dict[str, list[str]], max_rows: int = MAX_ROW
 
 def execute_sql(con: duckdb.DuckDBPyConnection, sql: str,
                 timeout: float = TIMEOUT_SECONDS) -> tuple[list[str], list[tuple[Any, ...]]]:
-    """Run a validated query with a hard timeout. Interrupts the query when time is up."""
-    timer = threading.Timer(timeout, con.interrupt)
-    timer.start()
-    try:
-        cursor = con.execute(sql)
-        columns = [d[0] for d in cursor.description]
-        return columns, cursor.fetchall()
-    except duckdb.InterruptException as exc:
-        raise SQLExecutionError(f"Query took longer than {timeout:g} seconds and was stopped.") from exc
-    except duckdb.Error as exc:
-        raise SQLExecutionError(str(exc)[:300]) from exc
-    finally:
-        timer.cancel()
+    """Run a validated query on DuckDB with a hard timeout. Interrupts the query when time is up."""
+    return DuckDBWarehouse(con, timeout=timeout).run(sql)
 
 
 FEW_SHOT = """\
@@ -201,6 +187,9 @@ class SQLResult:
     error: str | None = None
     repaired: bool = False
     repair_log: list[dict[str, Any]] = field(default_factory=list)  # why each repair was needed
+    warehouse: str = "duckdb"
+    executed_sql: str = ""  # the SQL the warehouse ran (BigQuery: transpiled and qualified)
+    bytes_billed: int | None = None  # BigQuery only
     explanation_failed: bool = False  # the query ran but the written explanation could not be produced
     explanation_error: str | None = None  # for the trace log only, never shown as the answer
 
@@ -252,9 +241,10 @@ def _text(reply: Any) -> str:
 
 
 class SQLAgent:
-    def __init__(self, con: duckdb.DuckDBPyConnection | None = None, llm: Any = None) -> None:
-        self.con = con or connect_readonly()
-        self.schema = get_schema(self.con)
+    def __init__(self, con: duckdb.DuckDBPyConnection | None = None, llm: Any = None,
+                 warehouse: Warehouse | None = None) -> None:
+        self.warehouse = warehouse or default_warehouse(con)
+        self.schema = self.warehouse.schema()
         self._llm = llm
 
     @property
@@ -267,7 +257,7 @@ class SQLAgent:
         return extract_sql(_text(invoke_with_retry(self.llm, messages, node=node)))
 
     def run(self, question: str) -> SQLResult:
-        result = SQLResult(question)
+        result = SQLResult(question, warehouse=self.warehouse.name)
         messages = build_messages(SYSTEM_PROMPT, f"Question: {question}\nSQL:")
         try:
             sql = self._generate(messages, "sql_agent.write")
@@ -281,7 +271,11 @@ class SQLAgent:
             try:
                 safe_sql = validate_sql(sql, self.schema)
                 result.sql = safe_sql
-                result.columns, result.rows = execute_sql(self.con, safe_sql)
+                try:
+                    result.columns, result.rows = self.warehouse.run(safe_sql)
+                finally:
+                    result.executed_sql = self.warehouse.last_sql
+                    result.bytes_billed = self.warehouse.last_bytes_billed
                 result.error = None
                 break
             except (SQLValidationError, SQLExecutionError) as exc:

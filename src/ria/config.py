@@ -49,6 +49,21 @@ DEMO_SESSION_LIMIT = int(os.getenv("RIA_SESSION_LIMIT", "5"))   # live questions
 DEMO_DAILY_LIMIT = int(os.getenv("RIA_DAILY_LIMIT", "60"))      # live questions for the whole demo per quota day
 MAX_QUESTION_CHARS = 300
 
+# --- Warehouse for the SQL agent ---
+# "duckdb" (default, local file) or "bigquery" (Google BigQuery, free sandbox). The model always writes DuckDB SQL.
+# For BigQuery the validated query is transpiled with sqlglot, so the prompt and the guardrails are the same.
+WAREHOUSE = os.getenv("RIA_WAREHOUSE", "duckdb").strip().lower()
+BQ_PROJECT = os.getenv("RIA_BQ_PROJECT", "")
+BQ_DATASET = os.getenv("RIA_BQ_DATASET", "retail")
+BQ_LOCATION = os.getenv("RIA_BQ_LOCATION", "US")
+# Paths to service account JSON keys. Keep them OUTSIDE the repo. The agent key is read-only (Data Viewer + Job User).
+BQ_AGENT_KEY = os.getenv("RIA_BQ_AGENT_KEY", "")
+BQ_LOADER_KEY = os.getenv("RIA_BQ_LOADER_KEY", "")
+# Every agent query is rejected by BigQuery before it runs if it would bill more than this (protects the 1 TiB
+# monthly free query quota). The whole dataset is far smaller than this cap.
+BQ_MAX_BYTES_BILLED = int(os.getenv("RIA_BQ_MAX_BYTES_BILLED", str(500 * 1024 * 1024)))
+BQ_TIMEOUT_SECONDS = 15.0  # BigQuery has job start-up time, so it gets a longer limit than DuckDB (5 s)
+
 # --- Paths ---
 DATA_DIR = ROOT / "data"
 DOCS_DIR = DATA_DIR / "docs"

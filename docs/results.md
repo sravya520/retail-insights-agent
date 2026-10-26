@@ -789,3 +789,96 @@ Total input tokens in these requests: 51215. Total tokens including output: 7247
 | Other SQL instructions and rules | 1780 | 3.5% | 2.5% |
 | Retrieved policy context (5 passages in every RAG call) | 5124 | 10.0% | 7.1% |
 <!-- END phase6_tokens_v1v2 -->
+
+<!-- BEGIN cloud_bigquery_parity -->
+### BigQuery warehouse parity (same SQL on DuckDB and BigQuery)
+
+Command: `python scripts/bq_parity.py`. No LLM calls. Each query is validated by `validate_sql` (DuckDB dialect), then run on
+local DuckDB and on BigQuery (sandbox, project from `.env`, dataset `retail`, read-only service account). On BigQuery
+the query is transpiled by sqlglot and every job has `maximum_bytes_billed` = 524,288,000 bytes. Each result is
+compared with the gold answer (numeric tolerance 0.5%). Queries: gold SQL from the question files, plus agent SQL replayed from
+`evals/runs/run-phase4/records.jsonl`, `evals/runs/run-v2/records.jsonl` (only questions with a gold answer and no SQL error, duplicates removed). The BigQuery query cache
+was off for this run, so the bytes and times are real (the agent keeps the cache on). BigQuery bills at least 10 MiB per table read.
+MB below means 1,000,000 bytes.
+
+- Queries checked: 67. Same outcome on both warehouses: **67 of 67**.
+- Matched gold: DuckDB 66 of 67, BigQuery 66 of 67.
+  Failed on both: q15 (agent (run-phase4)).
+- Bytes cap check: rejected as expected. Query q02 (gold, 63,963,136 bytes billed without the cap) under a cap of 20,971,520 bytes. BigQuery said: "BigQuery error: 500 Query exceeded limit for bytes billed: 20971520. 63963136 or higher required.; reason: bytesBilledLimitExceeded, message: Query exceeded lim"
+- BigQuery bytes billed: total 1762.7 MB, median 25.2 MB per query, max 64.0 MB.
+- Wall time per query: DuckDB median 0.01 s, BigQuery median 1.52 s.
+
+Differences and BigQuery errors:
+
+None.
+
+| ID | Source | DuckDB | BigQuery | BigQuery MB billed | DuckDB s | BigQuery s |
+|---|---|---|---|---|---|---|
+| q01 | gold | pass | pass | 16.8 | 0.01 | 2.19 |
+| q02 | gold | pass | pass | 64.0 | 0.05 | 1.79 |
+| q03 | gold | pass | pass | 15.7 | 0.01 | 1.44 |
+| q04 | gold | pass | pass | 25.2 | 0.01 | 1.62 |
+| q05 | gold | pass | pass | 25.2 | 0.00 | 1.63 |
+| q06 | gold | pass | pass | 25.2 | 0.01 | 1.78 |
+| q07 | gold | pass | pass | 25.2 | 0.01 | 1.45 |
+| q08 | gold | pass | pass | 10.5 | 0.00 | 1.58 |
+| q09 | gold | pass | pass | 10.5 | 0.00 | 1.37 |
+| q10 | gold | pass | pass | 24.1 | 0.01 | 1.58 |
+| q11 | gold | pass | pass | 24.1 | 0.01 | 1.47 |
+| q12 | gold | pass | pass | 55.6 | 0.04 | 1.52 |
+| q13 | gold | pass | pass | 54.5 | 0.05 | 2.27 |
+| q14 | gold | pass | pass | 24.1 | 0.01 | 1.44 |
+| q15 | gold | pass | pass | 41.9 | 0.01 | 1.94 |
+| h01 | gold | pass | pass | 25.2 | 0.00 | 1.42 |
+| h02 | gold | pass | pass | 33.6 | 0.01 | 1.46 |
+| h03 | gold | pass | pass | 10.5 | 0.00 | 1.61 |
+| h04 | gold | pass | pass | 26.2 | 0.01 | 1.61 |
+| h05 | gold | pass | pass | 24.1 | 0.01 | 1.48 |
+| h06 | gold | pass | pass | 33.6 | 0.01 | 1.69 |
+| h13 | gold | pass | pass | 10.5 | 0.00 | 1.73 |
+| h14 | gold | pass | pass | 10.5 | 0.00 | 1.40 |
+| h15 | gold | pass | pass | 33.6 | 0.01 | 1.49 |
+| h16 | gold | pass | pass | 24.1 | 0.01 | 1.41 |
+| v01 | gold | pass | pass | 25.2 | 0.01 | 1.65 |
+| v02 | gold | pass | pass | 33.6 | 0.00 | 1.46 |
+| v03 | gold | pass | pass | 25.2 | 0.01 | 1.45 |
+| v04 | gold | pass | pass | 10.5 | 0.01 | 1.42 |
+| v05 | gold | pass | pass | 25.2 | 0.00 | 1.42 |
+| v06 | gold | pass | pass | 25.2 | 0.01 | 1.68 |
+| v13 | gold | pass | pass | 25.2 | 0.00 | 1.42 |
+| v14 | gold | pass | pass | 33.6 | 0.01 | 1.67 |
+| v15 | gold | pass | pass | 25.2 | 0.00 | 1.44 |
+| v16 | gold | pass | pass | 15.7 | 0.01 | 1.55 |
+| h01 | agent (run-phase4) | pass | pass | 25.2 | 0.00 | 1.55 |
+| h02 | agent (run-phase4) | pass | pass | 33.6 | 0.01 | 1.65 |
+| h03 | agent (run-phase4) | pass | pass | 10.5 | 0.00 | 1.49 |
+| h04 | agent (run-phase4) | pass | pass | 26.2 | 0.00 | 1.42 |
+| h05 | agent (run-phase4) | pass | pass | 24.1 | 0.01 | 1.44 |
+| h06 | agent (run-phase4) | pass | pass | 33.6 | 0.01 | 1.35 |
+| h13 | agent (run-phase4) | pass | pass | 10.5 | 0.00 | 1.48 |
+| h14 | agent (run-phase4) | pass | pass | 10.5 | 0.00 | 5.39 |
+| h15 | agent (run-phase4) | pass | pass | 33.6 | 0.01 | 1.48 |
+| h16 | agent (run-phase4) | pass | pass | 24.1 | 0.01 | 1.49 |
+| q01 | agent (run-phase4) | pass | pass | 16.8 | 0.00 | 1.50 |
+| q02 | agent (run-phase4) | pass | pass | 64.0 | 0.04 | 1.76 |
+| q03 | agent (run-phase4) | pass | pass | 15.7 | 0.01 | 1.52 |
+| q05 | agent (run-phase4) | pass | pass | 25.2 | 0.00 | 1.35 |
+| q06 | agent (run-phase4) | pass | pass | 25.2 | 0.01 | 1.52 |
+| q08 | agent (run-phase4) | pass | pass | 10.5 | 0.00 | 1.47 |
+| q09 | agent (run-phase4) | pass | pass | 10.5 | 0.01 | 1.71 |
+| q10 | agent (run-phase4) | pass | pass | 24.1 | 0.01 | 1.42 |
+| q11 | agent (run-phase4) | pass | pass | 24.1 | 0.00 | 2.15 |
+| q12 | agent (run-phase4) | pass | pass | 55.6 | 0.06 | 1.82 |
+| q13 | agent (run-phase4) | pass | pass | 55.6 | 0.05 | 1.48 |
+| q14 | agent (run-phase4) | pass | pass | 24.1 | 0.01 | 1.58 |
+| q15 | agent (run-phase4) | FAIL | FAIL | 41.9 | 0.01 | 1.61 |
+| v02 | agent (run-v2) | pass | pass | 33.6 | 0.00 | 1.37 |
+| v03 | agent (run-v2) | pass | pass | 25.2 | 0.01 | 1.53 |
+| v04 | agent (run-v2) | pass | pass | 10.5 | 0.00 | 1.53 |
+| v05 | agent (run-v2) | pass | pass | 25.2 | 0.00 | 1.46 |
+| v06 | agent (run-v2) | pass | pass | 25.2 | 0.01 | 1.45 |
+| v13 | agent (run-v2) | pass | pass | 25.2 | 0.00 | 1.44 |
+| v14 | agent (run-v2) | pass | pass | 33.6 | 0.01 | 1.52 |
+| v15 | agent (run-v2) | pass | pass | 25.2 | 0.01 | 1.56 |
+| v16 | agent (run-v2) | pass | pass | 15.7 | 0.01 | 1.61 |
+<!-- END cloud_bigquery_parity -->

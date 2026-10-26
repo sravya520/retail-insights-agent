@@ -156,7 +156,8 @@ def build_graph(services: Services, checkpointer: Any = None):
         sql = {"sql": res.sql, "columns": res.columns, "rows": [[_jsonable(v) for v in r] for r in res.rows],
                "answer": res.answer, "error": res.error, "repaired": res.repaired,
                "repair_log": res.repair_log, "explanation_failed": res.explanation_failed,
-               "explanation_error": res.explanation_error}
+               "explanation_error": res.explanation_error, "warehouse": res.warehouse,
+               "executed_sql": res.executed_sql, "bytes_billed": res.bytes_billed}
         return {"sql": sql, "trajectory": state["trajectory"] + ["sql_agent"]}
 
     def rag_agent(state: State) -> State:
@@ -235,6 +236,8 @@ def ask(app: Any, question: str, thread_id: str = "default", label: str | None =
         "sql_error": (state.get("sql") or {}).get("error"),
         "explanation_failed": bool((state.get("sql") or {}).get("explanation_failed")),
         "explanation_error": (state.get("sql") or {}).get("explanation_error"),
+        "warehouse": (state.get("sql") or {}).get("warehouse"),
+        "bytes_billed": (state.get("sql") or {}).get("bytes_billed"),
         **state["usage"],
         "calls": state["calls"]})
     return state

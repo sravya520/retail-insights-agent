@@ -252,6 +252,18 @@ The small cost and latency difference between the two layouts is not a caching e
 
 `data/examples/examples_v1.json` holds the 20 eval-v1 held-out questions with the answer, route, trajectory, SQL, citations, verified flag, tokens, cost and latency recorded in a real run (`scripts/build_examples.py`, no hand edits). One of the 20 is a wrong answer (the model added a filter that excluded postage, so its number differs from the gold answer). It is kept and labelled as such in the UI.
 
+### Cloud warehouse: BigQuery
+
+The SQL agent can run on Google BigQuery (free sandbox, no card) instead of local DuckDB. Set `RIA_WAREHOUSE=bigquery` in `.env`. DuckDB stays the default.
+
+- **Same prompt, same guardrails.** The model still writes DuckDB SQL and `validate_sql` checks it. Then sqlglot translates the safe query to BigQuery SQL and adds the project and dataset to every table name (`src/ria/warehouse.py`).
+- **Cost protection.** Every BigQuery job has a maximum-bytes-billed cap (500 MiB by default) and a 15 second timeout. The agent uses a read-only service account (BigQuery Data Viewer and Job User). A separate loader account loads the data (`scripts/load_bigquery.py`).
+- **Parity check, no model calls** (`python scripts/bq_parity.py`): 67 queries (gold SQL from the question files plus SQL the agent wrote in earlier runs) gave the same outcome on DuckDB and BigQuery in 67 of 67 cases. 66 matched the gold answer on both. The one miss is the known dev question q15, which fails the same way on both.
+- **Cap check:** a query that needed 63,963,136 bytes was rejected by BigQuery under a 20 MiB cap before it ran.
+- **Cost and speed:** median 25.2 MB billed per query (BigQuery bills at least 10 MiB per table read), so the 1 TiB monthly free query quota covers tens of thousands of queries. Median time per query was 1.52 s on BigQuery against 0.01 s on local DuckDB.
+
+Full table: section "cloud_bigquery_parity" in `docs/results.md`.
+
 ## Limits
 
 - **The policy documents are synthetic.** The system has never seen real company policies. The sales data covers 2009 to 2011 only.
@@ -289,6 +301,8 @@ python evals/caching_experiment.py     # caching experiment, 20 held-out questio
 python evals/token_report.py           # tokens and cost per route
 python scripts/build_examples.py       # pre-computed examples for the demo (no model calls)
 python scripts/sync_readme.py          # copy result tables into this README
+python scripts/load_bigquery.py        # optional: load the parquet files into BigQuery (needs the .env keys)
+python scripts/bq_parity.py            # optional: same SQL on DuckDB and BigQuery, no model calls
 ```
 
 Download the dataset from https://archive.ics.uci.edu/dataset/502/online+retail+ii into `data/raw/online_retail_ii/` first. See the dataset page for its license and citation.

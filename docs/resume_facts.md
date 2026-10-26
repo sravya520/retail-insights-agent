@@ -24,13 +24,14 @@ Versions are the ones installed in my environment (command: `python -c "import i
 | rank_bm25 | 0.2.2 | BM25 keyword search | `retrieval.py` |
 | pypdf, reportlab | 6.21.2, 5.1.0 | Read and write the policy PDFs | `ingest_docs.py`, `make_policy_pdfs.py` |
 | duckdb | 2.0.0 | Sales database, read-only queries | `sql_db.py`, `sql_agent.py` |
-| sqlglot | 30.24.0 | SQL parsing and guardrails | `sql_agent.py` |
+| sqlglot | 30.24.0 | SQL parsing and guardrails, DuckDB to BigQuery translation | `sql_agent.py`, `warehouse.py` |
+| google-cloud-bigquery | 3.46.2 | Optional BigQuery warehouse (free sandbox) | `warehouse.py`, `scripts/load_bigquery.py` |
 | pandas, openpyxl | 3.1.0, 3.1.5 | Load and clean the Excel dataset | `sql_db.py` |
 | fastapi, uvicorn | 0.162.0, 0.54.0 | REST API | `src/ria/api.py` |
 | streamlit | 1.66.1 | Chat UI | `app/streamlit_app.py` |
 | httpx | 0.28.1 | UI to API calls | `src/ria/ui_backend.py` |
 | python-dotenv, tzdata | 1.2.4, 2026.5 | Secrets from `.env`, US Pacific quota day | `config.py`, `limits.py` |
-| pytest | 9.1.1 | 160 offline tests | `tests/` |
+| pytest | 9.1.1 | 170 offline tests | `tests/` |
 
 Listed but not used: `requests` is in `requirements.txt` but no repository code imports it. `numpy` is not imported directly. `langfuse` is referenced in `tracing.py` but is not installed, so it never ran. GitHub Actions (`.github/workflows/nightly-eval.yml`) and Docker (`Dockerfile`) exist as files but never ran (see sections 10 and 11).
 
@@ -79,6 +80,8 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 | Execution accuracy, dev | 14 of 15 | Dev data questions q01 to q15. The miss (q15) returns quarter labels "Q1" to "Q4" instead of 1 to 4. The revenue numbers are identical | `python evals/sql_eval.py`, section "SQL agent execution accuracy" |
 | Execution accuracy, held-out v2 | **10 of 10** | The 10 eval v2 held-out questions with a gold SQL answer, including one that needs a subquery. One run, after the dev fixes | section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`) |
 | Execution accuracy, dev, in eval v1 | 15 of 16 | Dev data questions plus the dev mixed question | `python evals/run_evals.py`, section "Eval v1" |
+| Warehouse parity, DuckDB against BigQuery | **67 of 67** same outcome | 67 queries: gold SQL plus agent SQL replayed from runs `run-phase4` and `run-v2`. 66 of 67 matched gold on both (q15 fails on both). No model calls | section "cloud_bigquery_parity" in `docs/results.md` (`python scripts/bq_parity.py`) |
+| BigQuery bytes billed per query | median 25.2 MB, max 64.0 MB | Same 67 queries, BigQuery query cache off. A 20 MiB cap rejected the 64 MB query before it ran | section "cloud_bigquery_parity" in `docs/results.md` (`python scripts/bq_parity.py`) |
 | Repairs needed in eval v1 | 1 (h04) | The first query failed and the one repair passed. The reason was not logged | `python scripts/doc_facts.py`, block 5 |
 
 ## 6. Router and trajectory
