@@ -593,12 +593,12 @@ These are dev questions, so this result is optimistic. Whether it holds on unsee
 <!-- BEGIN dev_after_fixes -->
 ### Evaluation dev_after_fixes (run `run-dev-after-fixes`)
 
-Status: **PARTIAL: 10 of 37 questions finished (stopped on error: Gemini call failed (GoogleRateLimitError): Error calling model 'gemini-3.5-flash-lite' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota)**. Command: `python evals/run_evals.py` with questions from `questions.jsonl`. These held-out questions were committed before any run, in commit `fc2973aff48267cec53ede2965e2f8e6c8f708f0`.
+Status: **COMPLETE**. Command: `python evals/run_evals.py` with questions from `questions.jsonl`. These held-out questions were committed before any run, in commit `fc2973aff48267cec53ede2965e2f8e6c8f708f0`.
 
 - Answering model for every component: `gemini-3.5-flash-lite` (router low, SQL low, RAG medium, combiner medium thinking). LLM cache: **off**.
 - Judge: no items were judged. By split: heldout: none; dev: none. Judge models that ran out of free daily quota during the run: none. The judge was not used in this run.
-- Real API calls in this run: **31** (31 answering, 0 judge). By node: {'router': 11, 'sql_agent.explain': 10, 'sql_agent.write': 10}. Failed calls: 2.
-- Questions: heldout 0 ({'data': 0, 'policy': 0, 'both': 0, 'out_of_scope': 0}), dev 10 ({'data': 15, 'policy': 20, 'both': 1, 'out_of_scope': 1}).
+- Real API calls in this run: **92** (92 answering, 0 judge). By node: {'combiner': 1, 'rag_agent': 21, 'router': 38, 'sql_agent.explain': 16, 'sql_agent.write': 16}. Failed calls: 2.
+- Questions: heldout 0 ({'data': 0, 'policy': 0, 'both': 0, 'out_of_scope': 0}), dev 37 ({'data': 15, 'policy': 20, 'both': 1, 'out_of_scope': 1}).
 
 **Held-out is the headline. Dev numbers are optimistic because the system was tuned on those questions.**
 
@@ -606,8 +606,8 @@ Status: **PARTIAL: 10 of 37 questions finished (stopped on error: Gemini call fa
 
 | Gate | Result | Detail |
 |---|---|---|
-| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 0/0, dev 10/10 |
-| All out of scope questions refused | PASS | heldout 0/0, dev 0/0 |
+| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 0/0, dev 36/36 |
+| All out of scope questions refused | PASS | heldout 0/0, dev 1/1 |
 | SQL guardrail blocks every unsafe query | PASS | 51/51 unsafe queries blocked (`evals/unsafe_sql.json`, no model involved) |
 
 Gate 1 uses the verifier's own rules, so it shows the verifier output is stable. It does not prove an answer is true.
@@ -617,19 +617,19 @@ Violating ids: heldout none, dev none. Gate 2 misses: heldout none, dev none.
 
 | Metric | Held-out | Dev |
 |---|---|---|
-| Router accuracy (route matches expected) | n/a | 10/10 = 100% |
-| Trajectory accuracy (exact node sequence) | n/a | 10/10 = 100% |
-| SQL execution accuracy (data and both questions, 0.5% tolerance) | n/a | 10/10 = 100% |
-| Retrieval recall@5 (policy and both questions, end to end) | n/a | n/a |
+| Router accuracy (route matches expected) | n/a | 37/37 = 100% |
+| Trajectory accuracy (exact node sequence) | n/a | 37/37 = 100% |
+| SQL execution accuracy (data and both questions, 0.5% tolerance) | n/a | 15/16 = 94% |
+| Retrieval recall@5 (policy and both questions, end to end) | n/a | 20/21 = 95% |
 | Not-covered questions answered "does not cover this" (policy docs lack the answer) | n/a | n/a |
-| Refusal rate on out of scope questions | n/a | n/a |
+| Refusal rate on out of scope questions | n/a | 1/1 = 100% |
 | Judge faithfulness, mean 1 to 5 | n/a | n/a |
 | Judge answer relevance, mean 1 to 5 | n/a | n/a |
 | Judge says faithful (faithfulness 4 or 5) | None | None |
-| Answers the verifier changed | 0/0 | 1/10 |
+| Answers the verifier changed | 0/0 | 1/36 |
 | Sentences removed (number / citation) | 0 / 0 | 3 / 0 |
-| Median wall time per question (s, includes pacing gaps) | n/a | 13.3 |
-| Answering cost per question (USD, paid-tier list prices, judge excluded) | n/a | $0.000867 |
+| Median wall time per question (s, includes pacing gaps) | n/a | 29.3 |
+| Answering cost per question (USD, paid-tier list prices, judge excluded) | n/a | $0.001650 |
 
 Most common wrong paths (both splits):
 
@@ -640,12 +640,12 @@ Gold queries wrongly blocked by the SQL guardrail: 0 of 26.
 Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
 <!-- END dev_after_fixes -->
 
-How to read the partial run above. The line "dev 10 ({'data': 15, ...})" shows the planned route counts next to the 10 questions that finished. "Answers the verifier changed 1/10" is not the verifier catching a model mistake. On q10 the SQL agent's explanation step hit the daily quota, the raw API error text became the answer, and the verifier removed the 3 sentences of that text that contained numbers. That bug is fixed: the answer is now a safe message plus the SQL rows, the run is marked `explanation_failed`, and the error text goes to the trace log only (test: `tests/test_explanation_failure.py`). The saved record of this run still shows the old behaviour.
+How to read the run above. The first 10 questions were answered on 2026-10-25 and the other 27 on 2026-10-26 (the run resumes from saved records), so the call count covers both days. "Answers the verifier changed 1/36" is not the verifier catching a model mistake. On q10, answered on 2026-10-25 before the fix, the SQL agent's explanation step hit the daily quota, the raw API error text became the answer, and the verifier removed the 3 sentences of that text that contained numbers. That bug is fixed: the answer is now a safe message plus the SQL rows, the run is marked `explanation_failed`, and the error text goes to the trace log only (test: `tests/test_explanation_failure.py`). The saved record of q10 still shows the old behaviour.
 
 
-## Dev fixes and eval v2: status (read this)
+## Dev fixes and eval v2
 
-**Eval v2 has NOT been run.** The free-tier daily quota of the answering model ran out on 2026-10-25. Eval v1 stays frozen and untouched.
+**Eval v2 and the dev re-run were completed on 2026-10-26** (sections "Evaluation eval_v2" and "Evaluation dev_after_fixes", and "Reading eval v2" below). Eval v1 stays frozen and untouched. Commit hashes in this section are from before the author-only history rewrite (see `docs/COMMIT_MAP.md`; `da8dea5` is now `73ad350`).
 
 What was done:
 
@@ -653,16 +653,16 @@ What was done:
 - **Router fix (dev only).** The router prompt now says to decide by what is asked (how many or which means data, what a rule says means policy, both only for a figure and a rule) and has 5 generic examples. None of the examples is an eval question, but one is a close paraphrase of the dev question p19, so p19 is no longer a clean test of this fix.
 - **RAG prompt fix (dev only).** The rule that made the model add "for a retail customer" is replaced by: use the passage's own words for who a rule applies to, and never add a customer type that neither the question nor the passage mentions.
 - **Query rewrite: built, tested, NOT adopted.** I fixed the adoption rule before running it: adopt only if dev MRR@5 rises by at least 0.03 and recall@5 does not drop. Result on the 20 dev policy questions: baseline recall 0.95 and MRR 0.850, rewritten query alone 0.90 and 0.739, original plus rewritten query fused 0.95 and 0.877. The gain of 0.027 is below the rule and p10 is still missed, so `QUERY_REWRITE` stays off. The p10 retrieval problem is not fixed.
-- **Not verified.** I re-ran the dev set after the fixes with the judge off (`python evals/run_evals.py --split dev --no-judge --label dev_after_fixes`). It stopped on the daily quota after 10 of 37 questions, all of them data questions. All 10 were routed correctly after the router prompt change, but none of them is a policy question, so they do not test the fixes for p07, p19 or the "for a retail customer" habit. Those effects are **unmeasured**. The fixes are covered only by unit tests of the prompts and the plumbing. One of the 10 (q10) exposed a bug, described below the run's table.
+- **Dev re-run after the fixes (judge off).** Completed for all 37 dev questions over two days, because the first attempt stopped on the daily quota after 10. Router and trajectory accuracy rose from 35 of 37 (eval v1) to 37 of 37: p07 and p19 now go to `policy`, but p19 is no longer a clean test, because a router example paraphrases it. The phrase "for a retail customer" was added without the question mentioning retail in 13 of 21 dev policy answers in eval v1 and in 0 of 21 after the fix (`python scripts/doc_facts.py`, block 6). SQL stayed at 15 of 16 (q15) and retrieval at 20 of 21 (p10).
 - **Exit code for incomplete runs.** If a run stops early (for example on a quota), `run_evals.py` now exits with code 2, so the nightly job fails instead of passing on the few questions that finished. A failed gate still exits with 1.
 - Tests: `pytest` gives 130 passed.
 
-To finish (after the quota resets at about 12:30 IST on 2026-10-26, midnight US Pacific):
+Commands used:
 
 ```bash
 python evals/run_evals.py --split dev --no-judge --label dev_after_fixes --resume run-dev-after-fixes
-python evals/run_evals.py --questions evals/questions_v2.jsonl --label eval_v2 --questions-commit da8dea57bf1a1c72b71afa0162abd9abc8c0f970 --resume run-v2
-python evals/token_report.py --records evals/runs/caching-stable_first.jsonl evals/runs/run-v2/records.jsonl
+python evals/run_evals.py --questions evals/questions_v2.jsonl --label eval_v2 --questions-commit 73ad350 --resume run-v2
+python evals/token_report.py --records evals/runs/caching-stable_first.jsonl evals/runs/run-v2/records.jsonl --section phase6_tokens_v1v2
 ```
 
 Quota fact: the API's own error message gives a free daily limit of 500 requests for `gemini-3.5-flash-lite` (`python scripts/doc_facts.py`). The nightly job also uses this quota, so on the free tier it can fail on a day when the budget was spent on experiments.
@@ -683,3 +683,109 @@ Checks that I ran (all found during development, raw output not saved, unless a 
 - **Slow imports.** On my machine, importing sentence-transformers was slow (antivirus scanning), so a cold start is slow. Hosts will differ.
 
 Not tested: building the Docker image (Docker Desktop was not running), the Streamlit Community Cloud deployment, the GitHub Actions workflow on GitHub (including a manual `workflow_dispatch` run), and Langfuse against a live account. Nothing is deployed yet, so there is no public URL.
+
+<!-- BEGIN eval_v2 -->
+### Evaluation eval_v2 (run `run-v2`)
+
+Status: **COMPLETE**. Command: `python evals/run_evals.py` with questions from `questions_v2.jsonl`. These held-out questions were committed before any run, in commit `73ad350`.
+
+- Answering model for every component: `gemini-3.5-flash-lite` (router low, SQL low, RAG medium, combiner medium thinking). LLM cache: **off**.
+- Judge: `gemini-3.6-flash` scored 15. By split: heldout: 15 by `gemini-3.6-flash`; dev: 0 by `gemini-3.6-flash`. Judge models that ran out of free daily quota during the run: none. The judge was a different model from the answering model.
+- Real API calls in this run: **68** (53 answering, 15 judge). By node: {'combiner': 4, 'judge': 15, 'rag_agent': 9, 'router': 20, 'sql_agent.explain': 10, 'sql_agent.write': 10}. Failed calls: 0.
+- Questions: heldout 20 ({'data': 6, 'policy': 6, 'both': 4, 'out_of_scope': 4}), dev 0 ({'data': 0, 'policy': 0, 'both': 0, 'out_of_scope': 0}).
+
+**Held-out is the headline. Dev numbers are optimistic because the system was tuned on those questions.**
+
+#### Gates (must pass)
+
+| Gate | Result | Detail |
+|---|---|---|
+| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 15/15, dev 0/0 |
+| All out of scope questions refused | PASS | heldout 4/4, dev 0/0 |
+| SQL guardrail blocks every unsafe query | PASS | 51/51 unsafe queries blocked (`evals/unsafe_sql.json`, no model involved) |
+
+Gate 1 uses the verifier's own rules, so it shows the verifier output is stable. It does not prove an answer is true.
+Violating ids: heldout none, dev none. Gate 2 misses: heldout none, dev none.
+
+#### Observations
+
+| Metric | Held-out | Dev |
+|---|---|---|
+| Router accuracy (route matches expected) | 19/20 = 95% (95% CI low 76%) | n/a |
+| Trajectory accuracy (exact node sequence) | 19/20 = 95% (95% CI low 76%) | n/a |
+| SQL execution accuracy (data and both questions, 0.5% tolerance) | 10/10 = 100% (95% CI low 72%) | n/a |
+| Retrieval recall@5 (policy and both questions, end to end) | 7/8 = 88% (95% CI low 53%) | n/a |
+| Not-covered questions answered "does not cover this" (policy docs lack the answer) | 1/2 = 50% (95% CI low 9%) | n/a |
+| Refusal rate on out of scope questions | 4/4 = 100% (95% CI low 51%) | n/a |
+| Judge faithfulness, mean 1 to 5 | 5.00 (n=15) | n/a |
+| Judge answer relevance, mean 1 to 5 | 5.00 (n=15) | n/a |
+| Judge says faithful (faithfulness 4 or 5) | 100% | None |
+| Answers the verifier changed | 0/15 | 0/0 |
+| Sentences removed (number / citation) | 0 / 0 | 0 / 0 |
+| Median wall time per question (s, includes pacing gaps) | 41.8 | n/a |
+| Answering cost per question (USD, paid-tier list prices, judge excluded) | $0.001715 | n/a |
+
+Most common wrong paths (both splits):
+
+- 1x expected router > rag_agent > combiner > verifier | got router > refuse
+
+Gold queries wrongly blocked by the SQL guardrail: 0 of 10.
+
+Judge calibration (agreement with human labels): **not computed yet.** It needs `evals/human_labels.jsonl` to be filled in by hand.
+<!-- END eval_v2 -->
+
+### Reading eval v2
+
+Eval v2 is a fresh held-out set of 20 questions, committed before the dev fixes and before any run. It was run once on 2026-10-26 with the fixed system, the cache off and `gemini-3.5-flash-lite` for every answering component. All 15 answered questions were judged by `gemini-3.6-flash`, a different model, so there is no self-judging in this run.
+
+- **Gates:** all three passed.
+- **SQL execution accuracy: 10 of 10**, including a question that needs a subquery (orders over 500 pounds).
+- **Router and trajectory: 19 of 20.** The miss is v11 ("opening hours of the head office"). The policy documents do not cover it, and the gold label expects the policy path with a "not covered" answer. The router refused it as out of scope instead. Arguably this is a reasonable outcome, but it is a miss against the gold label.
+- **Not-covered questions: 1 of 2** answered "The policy documents do not cover this" (v12). v11 is the router miss above.
+- **Retrieval recall@5: 7 of 8.** The miss is v09 ("Can you post a can of room spray to Canada?"). The gold clause, Shipping §4.2 ("aerosols are not shipped outside the UK and EU"), was not in the top 5. The model then answered "The policy documents do not cover this", which is **wrong**. The judge still gave it 5 for faithfulness and 5 for relevance, because it checks answers only against the retrieved evidence. **The judge cannot catch retrieval misses.**
+- **Derived number:** v07 asked about a fee on a 1,500 pound order. The answer gave the rule (10 percent for orders of 1,000 pounds or more) and did not compute a number that the verifier would have to remove.
+- **Verifier:** it changed 0 of 15 answers.
+- **Judge relevance:** 5.00 on every answer again, including the wrong v09 answer, so it is not credible.
+- **Speed:** API latency was high on 2026-10-26 (median wall time 41.8 s per question), so timings are not comparable with eval v1.
+- **Cost:** combined with the 20 eval-v1 held-out questions (40 requests), the answering cost is $1.713 per 1,000 queries for this mix (section "phase6_tokens_v1v2"). The router prompt grew with the fix examples, so out-of-scope questions now cost more ($0.319 against $0.275 per 1,000).
+
+<!-- BEGIN phase6_tokens_v1v2 -->
+### Token economics (per route), section phase6_tokens_v1v2
+
+Command: `python evals/token_report.py`. Source records: `caching-stable_first.jsonl`, `records.jsonl` (40 requests: data 12, policy 11, both 8, out_of_scope 9). Model: `gemini-3.5-flash-lite` for every component,
+production prompt layout, LLM response cache off. The judge is not included (it is an evaluation cost, not a serving cost).
+Cost uses `config.PRICES` (paid-tier list prices from the Gemini pricing page; thinking tokens are billed as output). The free tier bills nothing.
+Route groups are small (4 to 12 requests), so treat the averages as rough.
+
+| Route | Requests | LLM calls per query | Avg input tokens | Avg output tokens | Avg total tokens | Cost per query | Cost per 1,000 queries |
+|---|---|---|---|---|---|---|---|
+| data | 12 | 3.0 | 1521 | 198 | 1719 | $0.000951 | $0.951 |
+| policy | 11 | 2.0 | 990 | 643 | 1634 | $0.001905 | $1.905 |
+| both | 8 | 5.0 | 2222 | 1397 | 3619 | $0.004159 | $4.159 |
+| out_of_scope | 9 | 1.0 | 476 | 70 | 546 | $0.000319 | $0.319 |
+| **all (this mix)** | 40 | 2.7 | 1280 | 531 | 1812 | $0.001713 | $1.713 |
+
+Output tokens (which include thinking tokens) are 29% of all tokens in these requests, and cost 8.3 times more per token than input tokens.
+
+Average tokens per call, by node:
+
+| Node | Calls | Avg input | Avg output |
+|---|---|---|---|
+| combiner | 8 | 158 | 685 |
+| rag_agent | 19 | 538 | 549 |
+| router | 40 | 472 | 90 |
+| sql_agent.explain | 20 | 145 | 47 |
+| sql_agent.write | 20 | 897 | 39 |
+
+Share of tokens spent on the schema and on retrieved context. Fixed prompt parts were counted with the Gemini `count_tokens` endpoint
+(schema description 580 tokens, few-shot examples 207, whole SQL system prompt 876). The retrieved context is the
+policy passages sent to the RAG agent, counted per request. Counts are approximate because parts are counted separately from the whole prompt.
+Total input tokens in these requests: 51215. Total tokens including output: 72472.
+
+| Part of the prompt | Tokens | Share of input tokens | Share of all tokens (input + output) |
+|---|---|---|---|
+| Schema description (sent in every SQL write call) | 11600 | 22.6% | 16.0% |
+| Few-shot SQL examples | 4140 | 8.1% | 5.7% |
+| Other SQL instructions and rules | 1780 | 3.5% | 2.5% |
+| Retrieved policy context (5 passages in every RAG call) | 5124 | 10.0% | 7.1% |
+<!-- END phase6_tokens_v1v2 -->

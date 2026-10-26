@@ -66,6 +66,7 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 
 - The reranker lowered MRR on this set, so it is off in production. The one question every method misses is p10.
 - End to end on the **held-out** v1 questions, a gold clause was among the 5 retrieved clauses for 10 of 10 policy and mixed questions (`python evals/run_evals.py`, section "Eval v1").
+- End to end on the **held-out v2** questions (run once on 2026-10-26 after the dev fixes), a gold clause was retrieved for 7 of 8 policy and mixed questions. The miss is v09 ("room spray" against the clause on "aerosols"), and its answer wrongly said "not covered". Source: section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`).
 - A query-rewrite step (original and rewritten query fused) gave recall 0.95 and MRR 0.877 on the same 20 dev questions. It was not adopted, because a rule set before the run required a gain of at least 0.03 (`python evals/rewrite_experiment.py`).
 
 ## 5. SQL agent
@@ -76,6 +77,7 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 | 95% lower bound for that score | 72% | Wilson interval for 10 of 10 | same report |
 | Same 10 questions, two later runs | 10 of 10, then **9 of 10** | Runs `caching-question_first` and `caching-stable_first`. In the second, question h14 added a filter `is_merchandise = TRUE` and returned 245,841.79 instead of the gold 679,179.41 | `python scripts/doc_facts.py`, block 1 |
 | Execution accuracy, dev | 14 of 15 | Dev data questions q01 to q15. The miss (q15) returns quarter labels "Q1" to "Q4" instead of 1 to 4. The revenue numbers are identical | `python evals/sql_eval.py`, section "SQL agent execution accuracy" |
+| Execution accuracy, held-out v2 | **10 of 10** | The 10 eval v2 held-out questions with a gold SQL answer, including one that needs a subquery. One run, after the dev fixes | section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`) |
 | Execution accuracy, dev, in eval v1 | 15 of 16 | Dev data questions plus the dev mixed question | `python evals/run_evals.py`, section "Eval v1" |
 | Repairs needed in eval v1 | 1 (h04) | The first query failed and the one repair passed. The reason was not logged | `python scripts/doc_facts.py`, block 5 |
 
@@ -87,6 +89,8 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 | Trajectory accuracy (exact sequence of agent steps), held-out | **20 of 20** (95% lower bound 84%) | same | same |
 | Router and trajectory accuracy, dev | 35 of 37 | Eval v1 dev questions. Both misses (p07, p19) were policy questions sent to the mixed path | section "Eval v1"; the ids from `python scripts/doc_facts.py`, block 5 |
 | Refusal of out-of-scope questions, held-out | 4 of 4 | same | same |
+| Router and trajectory accuracy, held-out v2 | 19 of 20 (95% lower bound 76%) | Eval v2 held-out questions, one run after the dev fixes. The miss (v11, "opening hours", not covered by the policies) was refused as out of scope instead of answered "not covered" | section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`) |
+| Router and trajectory accuracy, dev, after the fixes | 37 of 37 (was 35 of 37) | Eval v1 dev questions. p19 is no longer a clean test, because a router example paraphrases it | section "Evaluation dev_after_fixes" |
 
 ## 7. Verifier and guardrails
 
@@ -117,6 +121,8 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 | Out of scope | 4 | $0.275 |
 | All 20 (this mix) | 20 | $1.710 |
 
+Combined with the 20 eval v2 questions (40 requests), the cost is $1.713 per 1,000 queries for that mix, and $0.319 to $4.159 by route (section "phase6_tokens_v1v2" in `docs/results.md`, `python evals/token_report.py --records ... --section phase6_tokens_v1v2`).
+
 | Fact | Number | Measured on | Source |
 |---|---|---|---|
 | Share of cost from output tokens | 79.1% | Same 20 requests (23,839 input, 10,823 output tokens) | `python scripts/doc_facts.py`, block 2 |
@@ -129,7 +135,7 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 
 ## 9. Judge calibration
 
-**Pending human labels.** `evals/human_labels.jsonl` has 20 answers and 0 of them are labelled. Judge agreement is NOT MEASURED. The judge scores in eval v1 are uncalibrated. Most of them were self-judged (the answering model scored its own answers), and the judge gave relevance 5 of 5 to every answer. Do not use the judge scores on a resume.
+**Pending human labels.** `evals/human_labels.jsonl` has 20 answers and 0 of them are labelled. Judge agreement is NOT MEASURED. Do not use judge scores on a resume. In eval v1 most scores were self-judged. In eval v2 all 15 were judged by `gemini-3.6-flash`, but it still gave 5 of 5 to the wrong v09 answer, because it checks answers only against the retrieved evidence. It cannot catch retrieval misses.
 
 ## 10. CI (nightly workflow)
 
@@ -157,8 +163,8 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 - **The one wrong pre-computed example.** Of the 20 pre-computed examples in the demo (`data/examples/examples_v1.json`, built by `python scripts/build_examples.py` from run `caching-stable_first`), 15 match the gold answer, 1 does not, and 4 are refusals with no gold check. The wrong one is h14: "What was the total value of returns in 2010, ...". The answer says £245,841.79 because the query added `is_merchandise = TRUE`. The gold answer is £679,179.41. It is kept and labelled as wrong in the UI.
 - The verifier checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words.
 - Retrieval misses dev question p10 with every method.
-- The router sent 2 dev policy questions (p07, p19) to the mixed path. A prompt fix exists, but its effect is NOT MEASURED.
-- The RAG prompt in eval v1 added "for a retail customer" to answers where nobody asked (the judge flagged h11, p14 and p15). A prompt fix exists, but its effect is NOT MEASURED.
+- The router sent 2 dev policy questions (p07, p19) to the mixed path in eval v1. After the prompt fix, dev router accuracy is 37 of 37 (p19 is no longer a clean test). On the held-out v2 set the router refused v11, which the policies do not cover, as out of scope.
+- The RAG prompt in eval v1 added "for a retail customer" when the question did not mention retail in 13 of 21 dev policy answers. After the prompt fix: 0 of 21 (`python scripts/doc_facts.py`, block 6).
 - Free-tier quota: the API's own quota error for `gemini-3.5-flash-lite` states a limit of 500 requests per day (saved in `evals/runs/run-dev-after-fixes/records.jsonl`; `python scripts/doc_facts.py`, block 3).
 - The partial dev re-run (`run-dev-after-fixes`) shows "Answers the verifier changed 1/10". That was not the verifier catching a model mistake: on q10 the raw quota error text became the answer and the verifier removed its 3 sentences with numbers. The bug is now fixed (section 7), but the saved record of that run still shows the old behaviour. Its SQL rows were correct, so the run's SQL accuracy counts q10 as correct.
 - If the explanation step fails now, the user gets the result rows without a written explanation.
@@ -166,7 +172,7 @@ Measured on the 20 eval v1 held-out questions, production prompt layout, cache o
 
 ## 13. Eval v2
 
-**Pending. NOT MEASURED.** The 20 v2 questions were committed in `da8dea5` before any fix and before any run. The run has not happened, because the free daily quota ran out. The dev re-run after the fixes also stopped after 10 of 37 questions (all data questions), so it does not measure the fixes.
+**Done (2026-10-26).** 20 fresh held-out questions, committed before the fixes and before any run (`73ad350`, old hash `da8dea5`), run once with the fixed system. All gates passed. Router and trajectory 19 of 20, SQL 10 of 10, retrieval recall 7 of 8, refusals 4 of 4, "not covered" answered correctly 1 of 2, verifier changed 0 of 15. All 15 answers were judged by `gemini-3.6-flash` (no self-judging). Source: section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`).
 
 ## How the 24 untraceable claims were resolved
 

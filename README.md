@@ -149,9 +149,43 @@ How to read this honestly:
 - The judge was a different model for 15 of the 16 held-out answers and the answering model itself for everything else (the free daily quota of the other judge models ran out). Its relevance score of 5.00 on every answer is not credible.
 - Judge calibration against human labels is **pending**: it needs the 20 hand labels in `evals/human_labels.jsonl`.
 
-### Eval v2 (pending)
+### Eval v2 (fresh held-out set, run after the fixes)
 
-A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed in `da8dea5` before any run and before the router and prompt fixes. Git history shows `da8dea5` comes before the fix commit `83cea5a`. The fixes were made using dev questions only. **It has not been run yet**, because the free daily quota ran out. The dev re-run after the fixes is also unfinished. So the effect of the fixes is **unmeasured**. The commands to finish are at the end of `docs/results.md`. Eval v1 stays untouched.
+A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed before any run and before the router and prompt fixes (commit `73ad350`, which comes before the fix commit `af557d3`). The fixes were made using dev questions only. It was run once on 2026-10-26 with the fixed system. All 15 answered questions were judged by a different model (`gemini-3.6-flash`).
+
+**Gates:**
+
+<!-- BEGIN sync:eval_v2_gates -->
+| Gate | Result | Detail |
+|---|---|---|
+| No unsupported number or citation in a final answer (verifier re-run on every answer) | PASS | heldout 15/15, dev 0/0 |
+| All out of scope questions refused | PASS | heldout 4/4, dev 0/0 |
+| SQL guardrail blocks every unsafe query | PASS | 51/51 unsafe queries blocked (`evals/unsafe_sql.json`, no model involved) |
+<!-- END sync:eval_v2_gates -->
+
+**Observations** (the Dev column is empty, because v2 is held-out only):
+
+<!-- BEGIN sync:eval_v2_obs -->
+| Metric | Held-out | Dev |
+|---|---|---|
+| Router accuracy (route matches expected) | 19/20 = 95% (95% CI low 76%) | n/a |
+| Trajectory accuracy (exact node sequence) | 19/20 = 95% (95% CI low 76%) | n/a |
+| SQL execution accuracy (data and both questions, 0.5% tolerance) | 10/10 = 100% (95% CI low 72%) | n/a |
+| Retrieval recall@5 (policy and both questions, end to end) | 7/8 = 88% (95% CI low 53%) | n/a |
+| Not-covered questions answered "does not cover this" (policy docs lack the answer) | 1/2 = 50% (95% CI low 9%) | n/a |
+| Refusal rate on out of scope questions | 4/4 = 100% (95% CI low 51%) | n/a |
+| Judge faithfulness, mean 1 to 5 | 5.00 (n=15) | n/a |
+| Judge answer relevance, mean 1 to 5 | 5.00 (n=15) | n/a |
+| Judge says faithful (faithfulness 4 or 5) | 100% | None |
+| Answers the verifier changed | 0/15 | 0/0 |
+| Sentences removed (number / citation) | 0 / 0 | 0 / 0 |
+| Median wall time per question (s, includes pacing gaps) | 41.8 | n/a |
+| Answering cost per question (USD, paid-tier list prices, judge excluded) | $0.001715 | n/a |
+<!-- END sync:eval_v2_obs -->
+
+- **Router miss (v11):** the "opening hours" question was refused as out of scope. The gold label expects the policy path with a "not covered" answer.
+- **Retrieval miss (v09):** "room spray to Canada" did not retrieve the clause on aerosols, so the answer said "not covered", which is wrong. The judge still scored it 5 of 5, because it only checks answers against the retrieved evidence.
+- **Dev re-run after the fixes:** router and trajectory went from 35 of 37 to 37 of 37. The added phrase "for a retail customer" went from 13 of 21 dev policy answers to 0 of 21 (`python scripts/doc_facts.py`).
 
 ### Token economics
 
@@ -225,7 +259,7 @@ The small cost and latency difference between the two layouts is not a caching e
 - **The model is not deterministic.** The model ignores temperature 0. The same 10 held-out SQL questions scored 10 of 10, 10 of 10 and 9 of 10 in three runs (`python scripts/doc_facts.py`). Single-run accuracy has noise I have not measured.
 - **Self-judging.** Most dev answers were scored by the answering model. Judge scores are lenient and not yet calibrated against human labels.
 - **The verifier is narrow.** It checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words. It allows numbers that appear in the cited clause or in the question.
-- **Known weaknesses.** One policy question (p10) still misses its gold clause. If the SQL agent's explanation step fails, the answer is a safe message plus the result rows instead of a written explanation. Two dev policy questions were routed to the wrong path before the router fix, whose effect is unmeasured. The RAG prompt used to add "for a retail customer" to answers (judged unsupported); the fix is unmeasured.
+- **Known weaknesses.** Retrieval misses dev question p10 and v2 question v09 (a vocabulary gap: "room spray" against "aerosols"). The judge cannot detect retrieval misses. The router refused one held-out question that the policy documents do not cover (v11). If the SQL agent's explanation step fails, the answer is a safe message plus the result rows instead of a written explanation.
 - **Free tier limits.** The API's own error message gives a free limit of 500 requests a day for the answering model (`python scripts/doc_facts.py`). Latency swings with API load. Explicit context caching is not available on the free tier.
 - **Prices** in `config.PRICES` were taken from the official pricing page on 2026-10-25 and will change.
 - **Memory.** The agent plus the embedding model came close to the documented minimum memory of Streamlit Community Cloud on my machine (found during development, raw output not saved), so a deployment there may be unstable.
@@ -233,7 +267,7 @@ The small cost and latency difference between the two layouts is not a caching e
 
 ## What I would do next
 
-1. Run eval v2 and the dev re-run after the quota resets, and report v2 separately from v1.
+1. Fix retrieval vocabulary gaps (p10, v09), for example with synonyms in the chunk text or a reranker trained on this domain, and check the fix on a new held-out set.
 2. Fill in the 20 human labels and measure how well the judge agrees with a human.
 3. Cut cost where it is: lower the thinking effort of the RAG and combiner calls and measure the quality change.
 4. Fix the p10 retrieval miss (a better query rewrite or a reranker trained on this domain), judged by a held-out set.

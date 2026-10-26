@@ -1,13 +1,15 @@
 {
  "calls": {
-  "total": 31,
+  "total": 92,
   "judge": 0,
-  "answering": 31,
+  "answering": 92,
   "failed": 2,
   "by_node": {
-   "router": 11,
-   "sql_agent.explain": 10,
-   "sql_agent.write": 10
+   "combiner": 1,
+   "rag_agent": 21,
+   "router": 38,
+   "sql_agent.explain": 16,
+   "sql_agent.write": 16
   }
  },
  "stop_reason": "stopped on error: Gemini call failed (GoogleRateLimitError): Error calling model 'gemini-3.5-flash-lite' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota",
@@ -28,6 +30,6 @@
   }
  },
  "judge_models_dead": [],
- "completed": 10,
+ "completed": 37,
  "model": "gemini-3.5-flash-lite"
 }
