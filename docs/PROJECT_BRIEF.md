@@ -44,7 +44,7 @@ Design principle: the LLM decides and explains. Code does the maths and checks t
 | SQL | DuckDB (default), Google BigQuery (optional, free sandbox, google-cloud-bigquery), sqlglot |
 | Data loading | pandas, openpyxl, pypdf, reportlab |
 | App | FastAPI, uvicorn, Streamlit, httpx |
-| Testing and CI | pytest (170 tests), GitHub Actions nightly workflow (passing on GitHub) |
+| Testing and CI | pytest (170 tests), GitHub Actions nightly workflow (one manual run passed; the first scheduled run failed before the API key secret was added) |
 | Hosting and packaging | Streamlit Community Cloud (live demo), Dockerfile (not built yet) |
 
 - **Answering model:** `gemini-3.5-flash-lite` for every component. Thinking level: router low, SQL low, RAG medium, combiner medium.
@@ -108,7 +108,7 @@ Later in the session:
 | Hybrid | 0.95 | 0.850 |
 | Hybrid + reranker | 0.95 | 0.771 |
 
-- The reranker made things worse, so it is off.
+- The reranker lowered MRR (0.771 against 0.850), so it is off. With 20 questions the hybrid against vector gap (0.85 against 0.80) is within sampling noise: the two differ on 4 questions, 3 better and 1 worse.
 - Dev question p10 is missed by every method.
 - A query-rewrite step (fused) reached MRR 0.877. It was not adopted, because a rule set before the run required a gain of at least 0.03.
 
@@ -129,7 +129,7 @@ Later in the session:
 
 **Cost** (20 held-out questions, production layout; paid-tier list prices; the free tier bills nothing):
 - Per 1,000 queries: data $0.827, policy $1.881, both $4.214, out of scope $0.275, overall mix $1.710.
-- Output tokens are 79.1% of cost. Thinking tokens are 71.8% of output tokens and 56.8% of cost.
+- Output tokens are 79.1% of cost. Thinking tokens are 71.8% of output tokens and 56.8% of cost (54 calls for 20 questions at list prices, recomputed from local logs; the thinking level was never varied).
 - The schema is 24.3% of input tokens. Retrieved policy context is 11.2%.
 
 **Caching:**
@@ -244,7 +244,7 @@ Later in the session:
 - Built a LangGraph multi-agent assistant that answers business questions over retail sales data (guarded text-to-SQL on DuckDB) and company policy documents (RAG with BGE embeddings, Chroma and hybrid BM25 plus semantic search). It routes each question to SQL, RAG or both, keeps conversation memory and cites policy clauses.
 - On a held-out set: router and trajectory 20 of 20; SQL 10 of 10 on the frozen run (9 to 10 of 10 across three runs); 51 of 51 unsafe queries blocked by the gates. A deterministic verifier checks numbers and citations. A guardrail was added after the SQL agent passed invented numbers through query constants, and it is covered by tests.
 - Retrieval on 20 dev questions: hybrid recall@5 of 0.95 against 0.70 for keyword search. Do not claim hybrid beat vector search (both are 0.95).
-- Traced tokens, cost and latency per call. Cost is $0.28 to $4.21 per 1,000 queries by route, at list prices. Output tokens (mostly thinking) are 79% of cost. Added a nightly GitHub Actions eval with gates, which passes on GitHub.
+- Traced tokens, cost and latency per call. Cost is $0.28 to $4.21 per 1,000 queries by route, at list prices. Output tokens (mostly thinking) are 79% of cost. Added a nightly GitHub Actions eval with gates; one manual run passed on GitHub on 2026-10-26.
 - Added Google BigQuery as an optional warehouse for the SQL agent: the same guardrails, with sqlglot translating DuckDB SQL to BigQuery, a read-only service account and a bytes-billed cap. 67 of 67 queries gave the same outcome on DuckDB and BigQuery, with a median of 25.2 MB billed per query.
 - On a second fresh held-out set (v2, run once after the fixes): router and trajectory 19 of 20, SQL 10 of 10, retrieval recall 7 of 8. All gates passed, and the judge was a different model from the answering model.
 - Deployed a public demo on Streamlit Community Cloud (https://retail-insights-agent-ehpjzeospfrryxgbpejme7.streamlit.app/) with usage limits that protect the free model quota and 20 pre-computed examples that cost nothing.

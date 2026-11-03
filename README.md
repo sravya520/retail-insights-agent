@@ -104,7 +104,7 @@ The answer has: `answer`, `route`, `trajectory`, `sql` (with columns and rows), 
 
 ### Protecting the free quota on a public demo
 
-A public demo on a free Gemini key can be drained by a few visitors. So live questions are limited: 5 per visitor and 60 per day for the whole demo by default (`RIA_SESSION_LIMIT`, `RIA_DAILY_LIMIT`). Days follow US Pacific time, because that is when the Gemini free quota resets. If Gemini itself reports its daily quota is used up, live questions pause until the reset. When a limit is reached the user sees a clear message. The UI also has **20 pre-computed examples** from real runs of this system (see below) that open with no quota use.
+A public demo on a free Gemini key can be drained by a few visitors. So live questions are limited: 5 per browser session and 60 per day for the whole demo by default (`RIA_SESSION_LIMIT`, `RIA_DAILY_LIMIT`). Days follow US Pacific time, because that is when the Gemini free quota resets. If Gemini itself reports its daily quota is used up, live questions pause until the reset. The session id is made by the app (or sent by the caller in an `X-Session-Id` header, or taken from the client address in the API), so a new browser session or header gets a fresh 5. The daily cap of 60 is the real protection. The counter is kept in a small file, so a wiped disk resets it. When a limit is reached the user sees a clear message. The UI also has **20 pre-computed examples** from real runs of this system (see below) that open with no quota use.
 
 ## Results
 
@@ -151,7 +151,7 @@ How to read this honestly:
 
 ### Eval v2 (fresh held-out set, run after the fixes)
 
-A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed before any run and before the router and prompt fixes (commit `73ad350`, which comes before the fix commit `af557d3`). The fixes were made using dev questions only. It was run once on 2026-10-26 with the fixed system. All 15 answered questions were judged by a different model (`gemini-3.6-flash`).
+A second, harder held-out set of 20 questions (`evals/questions_v2.jsonl`) was committed before any run and before the router and prompt fixes (commit `73ad350`, which comes before the fix commit `af557d3`). The fixes were made using dev questions only (stated in the commit message; I had already seen the eval v1 held-out results by then, which is why v1 is no longer a clean held-out set for the router and RAG prompts and v2 was written). The SQL prompt text and the guardrail rules were not changed between the eval v1 run and the v2 run (checked with `git diff`). It was run once on 2026-10-26 with the fixed system. All 15 answered questions were judged by a different model (`gemini-3.6-flash`).
 
 **Gates:**
 
@@ -212,7 +212,7 @@ Share of tokens spent on the schema and on retrieved context:
 | Retrieved policy context (5 passages in every RAG call) | 2664 | 11.2% | 7.7% |
 <!-- END sync:tokens_share -->
 
-Output tokens are 79.1% of the cost in this run (`python scripts/doc_facts.py`), so the biggest lever is thinking effort, not the prompt.
+Output tokens are 79.1% of the cost in this run (`python scripts/doc_facts.py`). Thinking tokens are 71.8% of output tokens and 56.8% of cost, all of them in the RAG and combiner calls (the router and SQL calls used none). That was recomputed from the git-ignored `logs/` of this one run: 54 calls for 20 questions, at paid-tier list prices. I have not tested a lower thinking level, so "thinking effort is the biggest lever" is a hypothesis, not a result. New runs keep the thinking-token count in `usage.reasoning_tokens` of each run record.
 
 ### The caching finding
 
@@ -258,7 +258,7 @@ The SQL agent can run on Google BigQuery (free sandbox, no card) instead of loca
 
 - **Same prompt, same guardrails.** The model still writes DuckDB SQL and `validate_sql` checks it. Then sqlglot translates the safe query to BigQuery SQL and adds the project and dataset to every table name (`src/ria/warehouse.py`).
 - **Cost protection.** Every BigQuery job has a maximum-bytes-billed cap (500 MiB by default) and a 15 second timeout. The agent uses a read-only service account (BigQuery Data Viewer and Job User). A separate loader account loads the data (`scripts/load_bigquery.py`).
-- **Parity check, no model calls** (`python scripts/bq_parity.py`): 67 queries (gold SQL from the question files plus SQL the agent wrote in earlier runs) gave the same outcome on DuckDB and BigQuery in 67 of 67 cases. 66 matched the gold answer on both. The one miss is the known dev question q15, which fails the same way on both.
+- **Parity check, no model calls** (`python scripts/bq_parity.py`): 67 queries (gold SQL from the question files plus SQL the agent wrote in earlier runs) gave the same outcome on DuckDB and BigQuery in 67 of 67 cases. "Outcome" means pass or fail against the gold answer (0.5% tolerance), not a row-by-row comparison of the two warehouses. 66 matched the gold answer on both. The one miss is the known dev question q15, which fails the same way on both.
 - **Cap check:** a query that needed 63,963,136 bytes was rejected by BigQuery under a 20 MiB cap before it ran.
 - **Cost and speed:** median 25.2 MB billed per query (BigQuery bills at least 10 MiB per table read), so the 1 TiB monthly free query quota covers tens of thousands of queries. Median time per query was 1.52 s on BigQuery against 0.01 s on local DuckDB.
 
@@ -269,6 +269,7 @@ Full table: section "cloud_bigquery_parity" in `docs/results.md`.
 - **The policy documents are synthetic.** The system has never seen real company policies. The sales data covers 2009 to 2011 only.
 - **The eval sets are small.** 20 held-out questions and 37 dev questions. Route groups have 4 to 6 questions. Confidence intervals are wide. The dev numbers are optimistic. Dev both and out-of-scope sets have one question each.
 - **The model is not deterministic.** The model ignores temperature 0. The same 10 held-out SQL questions scored 10 of 10, 10 of 10 and 9 of 10 in three runs (`python scripts/doc_facts.py`). Single-run accuracy has noise I have not measured.
+- **The guardrail checks were written by me.** The 51 unsafe queries (`evals/unsafe_sql.json`, which also holds malformed text and unknown names, not only attacks) and the 26 gold queries used for the "0 wrongly blocked" count (25 distinct) were written by the same person who wrote the guardrail, and no independent attack set was run. The constant check only looks at the top level of the SELECT list: in an offline probe, `COUNT(*) + 28`, `(SELECT 28) AS x` and a `CASE` returning 28 were all allowed. The verifier then accepts any number that is in the SQL rows.
 - **Self-judging.** Most dev answers were scored by the answering model. Judge scores are lenient and not yet calibrated against human labels.
 - **The verifier is narrow.** It checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words. It allows numbers that appear in the cited clause or in the question.
 - **Known weaknesses.** Retrieval misses dev question p10 and v2 question v09 (a vocabulary gap: "room spray" against "aerosols"). The judge cannot detect retrieval misses. The router refused one held-out question that the policy documents do not cover (v11). If the SQL agent's explanation step fails, the answer is a safe message plus the result rows instead of a written explanation.

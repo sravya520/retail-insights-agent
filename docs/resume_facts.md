@@ -48,7 +48,7 @@ Listed but not used: `requests` is in `requirements.txt` but no repository code 
 | Policy chunks | 182 | One chunk per numbered clause | output of `python -m ria.ingest_docs`; `data/chroma/chunks.json` has 182 entries |
 | Eval v1 held-out questions | 20 | 6 data, 6 policy, 4 both, 4 out of scope. Committed before any run (`fc2973a`) | `evals/questions.jsonl` |
 | Eval v1 dev questions | 37 | 15 data, 20 policy, 1 both, 1 out of scope. Used while building, so optimistic | `evals/questions.jsonl` |
-| Eval v2 held-out questions | 20 | 6 data, 6 policy, 4 both, 4 out of scope. Committed before any run (`da8dea5`). Not run yet | `evals/questions_v2.jsonl` |
+| Eval v2 held-out questions | 20 | 6 data, 6 policy, 4 both, 4 out of scope. Committed before any run (`da8dea5`). Run once on 2026-10-26 (section 13) | `evals/questions_v2.jsonl` |
 | Retrieval eval questions | 20 | Dev policy questions p01 to p20 | `evals/policy_questions.jsonl` |
 | SQL eval questions | 15 | Dev data questions q01 to q15 | `evals/sql_questions.jsonl` |
 | Unsafe SQL test queries | 51 | Queries the guardrail must block | `evals/unsafe_sql.json` |
@@ -80,7 +80,7 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 | Execution accuracy, dev | 14 of 15 | Dev data questions q01 to q15. The miss (q15) returns quarter labels "Q1" to "Q4" instead of 1 to 4. The revenue numbers are identical | `python evals/sql_eval.py`, section "SQL agent execution accuracy" |
 | Execution accuracy, held-out v2 | **10 of 10** | The 10 eval v2 held-out questions with a gold SQL answer, including one that needs a subquery. One run, after the dev fixes | section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`) |
 | Execution accuracy, dev, in eval v1 | 15 of 16 | Dev data questions plus the dev mixed question | `python evals/run_evals.py`, section "Eval v1" |
-| Warehouse parity, DuckDB against BigQuery | **67 of 67** same outcome | 67 queries: gold SQL plus agent SQL replayed from runs `run-phase4` and `run-v2`. 66 of 67 matched gold on both (q15 fails on both). No model calls | section "cloud_bigquery_parity" in `docs/results.md` (`python scripts/bq_parity.py`) |
+| Warehouse parity, DuckDB against BigQuery | **67 of 67** same outcome | 67 distinct queries: 35 gold SQL plus 32 agent SQL replayed from runs `run-phase4` and `run-v2`. "Same outcome" means pass or fail against the gold answer (0.5% tolerance, order ignored unless the question is ordered), so q15, which fails on both, counts as the same. 66 of 67 matched gold on each warehouse. The raw results are in git-ignored `logs/bq_parity.json`; the first 3 rows of each result agree between the warehouses in 67 of 67. No model calls | section "cloud_bigquery_parity" in `docs/results.md` (`python scripts/bq_parity.py`) |
 | BigQuery bytes billed per query | median 25.2 MB, max 64.0 MB | Same 67 queries, BigQuery query cache off. A 20 MiB cap rejected the 64 MB query before it ran | section "cloud_bigquery_parity" in `docs/results.md` (`python scripts/bq_parity.py`) |
 | Repairs needed in eval v1 | 1 (h04) | The first query failed and the one repair passed. The reason was not logged | `python scripts/doc_facts.py`, block 5 |
 
@@ -103,8 +103,8 @@ What the verifier blocks: a sentence with a number that is not in the SQL result
 |---|---|---|---|
 | Gate 1: no unsupported number or citation in a final answer | Pass. Held-out 16 of 16, dev 36 of 36 | Every answered eval v1 question, verifier run again on the final answer | `python evals/run_evals.py`, section "Eval v1" |
 | Gate 2: out-of-scope questions refused | Pass. Held-out 4 of 4, dev 1 of 1 | same | same |
-| Gate 3: unsafe SQL blocked | Pass. 51 of 51 | `evals/unsafe_sql.json`, no model involved | same |
-| Gold queries wrongly blocked | 0 of 26 | All eval v1 gold SQL queries | same |
+| Gate 3: unsafe SQL blocked | Pass. 51 of 51 | `evals/unsafe_sql.json`, no model involved. 51 distinct statements: writes and DDL, file and system functions, multiple statements, unknown tables and columns, malformed text, and 2 made-up constants. I wrote the list after the guardrail (commit `b4dd122`), so it is a regression set, not an independent attack test | same |
+| Gold queries wrongly blocked | 0 of 26 | The 26 gold SQL entries in `evals/questions.jsonl` (25 distinct, because two questions share a query). Eval v2 adds 10 more, also 0 blocked. These are queries I wrote, not queries the agent wrote | same; recomputed offline with `gold_queries_not_blocked` |
 | Real answers the verifier changed | 0 of 52 | All answered eval v1 questions | same |
 | Injected-fault test | 2 of 2 fake sentences removed | One made-up number (87%) and one fake citation (§9.9) added to a real answer | `python evals/graph_examples.py`, section "Graph example runs" |
 
@@ -129,7 +129,7 @@ Combined with the 20 eval v2 questions (40 requests), the cost is $1.713 per 1,0
 | Fact | Number | Measured on | Source |
 |---|---|---|---|
 | Share of cost from output tokens | 79.1% | Same 20 requests (23,839 input, 10,823 output tokens) | `python scripts/doc_facts.py`, block 2 |
-| Thinking (reasoning) tokens | 7,771 of 10,823 output tokens (71.8%), 56.8% of cost | The 54 model calls of the same run | `python scripts/doc_facts.py`, block 4 (local only: reads `logs/`) |
+| Thinking (reasoning) tokens | 7,771 of 10,823 output tokens (71.8%), 56.8% of cost | The 54 model calls of the same run (20 questions, one run, paid-tier list prices, not an actual bill). Reasoning cost is the reasoning tokens at the output price. All of it is in RAG calls (4,990 tokens, 36.5% of cost) and combiner calls (2,781 tokens, 20.3%); router and SQL calls used none. Input and output sums of the 54 logged calls equal the committed records (23,839 and 10,823). The thinking level was never varied, so "driven by the thinking level" is not tested | `python scripts/doc_facts.py`, block 4 (local only: reads git-ignored `logs/`). Runs made after commit `90617c4` also keep it in `usage.reasoning_tokens` of the run records |
 | Most cost saved if every input token were cached | 18.8% | Same 20 requests | `python scripts/doc_facts.py`, block 2 |
 | Schema description share of input tokens | 24.3% | Same 20 requests | `python evals/token_report.py` |
 | Retrieved policy context share of input tokens | 11.2% | Same 20 requests | same |
@@ -166,8 +166,13 @@ Combined with the 20 eval v2 questions (40 requests), the cost is $1.713 per 1,0
 - **The one wrong pre-computed example.** Of the 20 pre-computed examples in the demo (`data/examples/examples_v1.json`, built by `python scripts/build_examples.py` from run `caching-stable_first`), 15 match the gold answer, 1 does not, and 4 are refusals with no gold check. The wrong one is h14: "What was the total value of returns in 2010, ...". The answer says £245,841.79 because the query added `is_merchandise = TRUE`. The gold answer is £679,179.41. It is kept and labelled as wrong in the UI.
 - The verifier checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words.
 - Retrieval misses dev question p10 with every method.
+- The MRR@5 gap of 0.85 (hybrid) against 0.80 (vector) is 20 dev questions (18 with one gold clause, 2 with two). The two methods rank the gold clause differently on only 4 of 20 questions (hybrid better on 3, worse on 1). A bootstrap 95% interval for the difference is about -0.05 to +0.16, so the gap is within sampling noise. Retrieval is deterministic (a rerun gave identical ranks), so there is no run-to-run noise, but 20 questions cannot separate the two. The hybrid setting (RRF k=60) and the decision to drop the reranker (MRR 0.771) were both judged on these same dev questions.
 - The router sent 2 dev policy questions (p07, p19) to the mixed path in eval v1. After the prompt fix, dev router accuracy is 37 of 37 (p19 is no longer a clean test). On the held-out v2 set the router refused v11, which the policies do not cover, as out of scope.
 - The RAG prompt in eval v1 added "for a retail customer" when the question did not mention retail in 13 of 21 dev policy answers. After the prompt fix: 0 of 21 (`python scripts/doc_facts.py`, block 6).
+- Demo limits: the 5 per session limit is keyed on an id the app or caller supplies, so a new browser session gets a new 5. The 60 per day demo-wide limit is the real cap, and it is kept in a file that a wiped disk resets.
+- Held-out v1 is no longer clean for the router and RAG prompts: they were changed (commit `af557d3`, using dev questions according to its message) after the v1 held-out results had been seen. The SQL prompt text and guardrail rules did not change between the v1 run and the v2 run. The SQL gold answers come from gold queries I wrote, so a shared misreading of a question by me and the agent would not show up.
+- The constant guardrail only checks the top level of the SELECT list. An offline probe showed `COUNT(*) + 28`, `(SELECT 28) AS x` and a `CASE` returning 28 are allowed, and the verifier accepts any number that is in the SQL rows.
+- The "28-day return window" bug has no saved raw output. What is checkable is the fix and its tests.
 - Free-tier quota: the API's own quota error for `gemini-3.5-flash-lite` states a limit of 500 requests per day (saved in `evals/runs/run-dev-after-fixes/records.jsonl`; `python scripts/doc_facts.py`, block 3).
 - The partial dev re-run (`run-dev-after-fixes`) shows "Answers the verifier changed 1/10". That was not the verifier catching a model mistake: on q10 the raw quota error text became the answer and the verifier removed its 3 sentences with numbers. The bug is now fixed (section 7), but the saved record of that run still shows the old behaviour. Its SQL rows were correct, so the run's SQL accuracy counts q10 as correct.
 - If the explanation step fails now, the user gets the result rows without a written explanation.
