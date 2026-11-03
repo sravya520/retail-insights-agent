@@ -98,6 +98,7 @@ def totals(calls: list[dict[str, Any]]) -> dict[str, Any]:
         "input_tokens": sum(c.get("input_tokens", 0) for c in real),
         "output_tokens": sum(c.get("output_tokens", 0) for c in real),
         "cached_tokens": sum(c.get("cached_tokens", 0) for c in real),
+        "reasoning_tokens": sum(c.get("reasoning_tokens", 0) for c in real),  # part of output_tokens
         "total_tokens": sum(c.get("input_tokens", 0) + c.get("output_tokens", 0) for c in real),
         "cost_usd": round(sum(c.get("cost_usd", 0.0) for c in real), 8),
         "llm_latency_s": round(sum(c.get("latency_s", 0.0) for c in real), 3),

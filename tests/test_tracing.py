@@ -52,6 +52,7 @@ def test_call_log_has_tokens_cost_and_request_totals_exclude_cache_hits(monkeypa
     assert first["cost_usd"] == pytest.approx((600 * 0.30 + 400 * 0.03 + 100 * 2.5) / 1e6, rel=1e-4)
     t = tracing.totals(calls)
     assert t["llm_calls"] == 2 and t["cache_hits"] == 1 and t["input_tokens"] == 2000 and t["cached_tokens"] == 800
+    assert t["reasoning_tokens"] == 120 and t["reasoning_tokens"] <= t["output_tokens"]  # saved in run records, so a thinking share can be recomputed from them
     assert t["total_tokens"] == 2200 and t["cost_usd"] == pytest.approx(2 * first["cost_usd"], rel=1e-4)
 
 
