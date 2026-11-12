@@ -268,7 +268,7 @@ Full table: section "cloud_bigquery_parity" in `docs/results.md`.
 
 - **The policy documents are synthetic.** The system has never seen real company policies. The sales data covers 2009 to 2011 only.
 - **The eval sets are small.** 20 held-out questions and 37 dev questions. Route groups have 4 to 6 questions. Confidence intervals are wide. The dev numbers are optimistic. Dev both and out-of-scope sets have one question each.
-- **The model is not deterministic.** The model ignores temperature 0. The same 10 held-out SQL questions scored 10 of 10, 10 of 10 and 9 of 10 in three runs (`python scripts/doc_facts.py`). Single-run accuracy has noise I have not measured.
+- **The model is not deterministic.** The model ignores temperature 0. The same 10 held-out SQL questions scored 10 of 10, 10 of 10 and 9 of 10 in three runs (`python scripts/doc_facts.py`). The one question that varied is h14: it returned the gold answer in two of the four saved runs that contain it and a different number (an added `is_merchandise = TRUE` filter) in the other two, one of which is the local run of the nightly command. Single-run accuracy has noise I have not measured.
 - **The guardrail checks were written by me.** The 51 unsafe queries (`evals/unsafe_sql.json`, which also holds malformed text and unknown names, not only attacks) and the 26 gold queries used for the "0 wrongly blocked" count (25 distinct) were written by the same person who wrote the guardrail, and no independent attack set was run. The constant check only looks at the top level of the SELECT list: in an offline probe, `COUNT(*) + 28`, `(SELECT 28) AS x` and a `CASE` returning 28 were all allowed. The verifier then accepts any number that is in the SQL rows.
 - **Self-judging.** Most dev answers were scored by the answering model. Judge scores are lenient and not yet calibrated against human labels.
 - **The verifier is narrow.** It checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words. It allows numbers that appear in the cited clause or in the question.
@@ -276,6 +276,7 @@ Full table: section "cloud_bigquery_parity" in `docs/results.md`.
 - **Free tier limits.** The API's own error message gives a free limit of 500 requests a day for the answering model (`python scripts/doc_facts.py`). Latency swings with API load. Explicit context caching is not available on the free tier.
 - **Prices** in `config.PRICES` were taken from the official pricing page on 2026-10-25 and will change.
 - **Memory.** The agent plus the embedding model came close to the documented minimum memory of Streamlit Community Cloud on my machine (found during development, raw output not saved). The demo is deployed there and opened on 2026-10-27, but it may restart under load, and a sleeping app takes a while to wake up.
+- **The nightly gates check safety, not SQL accuracy.** They fail the job on an unsupported number or citation, an unrefused out-of-scope question, or an unblocked unsafe query. They do not compare SQL results with the gold answers, so a wrong answer such as h14's does not fail the job.
 - **Nightly job on GitHub:** the first scheduled run failed because the `GOOGLE_API_KEY` secret was not set yet. After adding it, a manual run on 2026-10-26 passed every step, including the 10-question eval with gates ([run 40386120861](https://github.com/sravya520/retail-insights-agent/actions/runs/40386120861)).
 - **Not tested here:** the Dockerfile and Langfuse against a live account. A clean clone was started locally with `scripts/start.sh` (found during development, raw output not saved). See `docs/DEPLOY.md` and the Phase 6 section of `docs/results.md`.
 
@@ -301,11 +302,14 @@ python evals/sql_eval.py               # SQL execution accuracy, 15 dev question
 python evals/run_evals.py              # full eval v1 (cache off). New runs use --label, eval_v1 is frozen
 python evals/caching_experiment.py     # caching experiment, 20 held-out questions
 python evals/token_report.py           # tokens and cost per route
+pytest                                 # 170 tests collected, offline, no API key (see the note below)
 python scripts/build_examples.py       # pre-computed examples for the demo (no model calls)
 python scripts/sync_readme.py          # copy result tables into this README
 python scripts/load_bigquery.py        # optional: load the parquet files into BigQuery (needs the .env keys)
 python scripts/bq_parity.py            # optional: same SQL on DuckDB and BigQuery, no model calls
 ```
+
+`pytest` collects 170 tests. On 2026-10-27 all 170 passed on my machine. In a re-check on 2026-11-12 in a network-restricted environment, 169 passed and 1 failed because the embedding model could not be downloaded (`tests/test_fixes_v2.py::test_search_multi_on_the_real_index`); that test needs the Hugging Face model files.
 
 Download the dataset from https://archive.ics.uci.edu/dataset/502/online+retail+ii into `data/raw/online_retail_ii/` first. See the dataset page for its license and citation.
 

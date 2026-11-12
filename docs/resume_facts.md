@@ -77,6 +77,7 @@ Measured on the 20 **dev** policy questions (p01 to p20). Command: `python evals
 | Execution accuracy, held-out | **10 of 10** | The 10 eval v1 held-out questions that have a gold SQL answer (6 data, 4 both). Agent result must match gold within 0.5% | `python evals/run_evals.py`, run `run-phase4`, section "Eval v1" |
 | 95% lower bound for that score | 72% | Wilson interval for 10 of 10 | same report |
 | Same 10 questions, two later runs | 10 of 10, then **9 of 10** | Runs `caching-question_first` and `caching-stable_first`. In the second, question h14 added a filter `is_merchandise = TRUE` and returned 245,841.79 instead of the gold 679,179.41 | `python scripts/doc_facts.py`, block 1 |
+| h14 across every saved run that contains it | Gold answer in 2 of 4 runs, wrong in 2 of 4 | `run-phase4` and `caching-question_first`: 679,179.41 (gold). `caching-stable_first` and `nightly-local`: 245,841.79 with `is_merchandise = TRUE`. The `nightly-local` run is the local run of the nightly workflow's command (5 of its 10 questions have gold SQL; 4 matched, h14 did not). Recomputed on 2026-11-12 by comparing each record's `sql.rows` with `gold_answer` (0.5% tolerance) | `evals/runs/*/records.jsonl` (the `nightly-local` folder is local only). Whether h14 was right in the GitHub run of 2026-10-26 was not checked, because that run's records were not kept in the repository |
 | Execution accuracy, dev | 14 of 15 | Dev data questions q01 to q15. The miss (q15) returns quarter labels "Q1" to "Q4" instead of 1 to 4. The revenue numbers are identical | `python evals/sql_eval.py`, section "SQL agent execution accuracy" |
 | Execution accuracy, held-out v2 | **10 of 10** | The 10 eval v2 held-out questions with a gold SQL answer, including one that needs a subquery. One run, after the dev fixes | section "Evaluation eval_v2" in `docs/results.md` (`python evals/run_evals.py --questions evals/questions_v2.jsonl ...`) |
 | Execution accuracy, dev, in eval v1 | 15 of 16 | Dev data questions plus the dev mixed question | `python evals/run_evals.py`, section "Eval v1" |
@@ -145,9 +146,11 @@ Combined with the 20 eval v2 questions (40 requests), the cost is $1.713 per 1,0
 | Fact | Status | Source |
 |---|---|---|
 | Nightly workflow on GitHub (`.github/workflows/nightly-eval.yml`, scheduled and manual) | **Passed** on a manual run on 2026-10-26 (commit `5346e5a`): offline gate tests and the 10-question eval with gates, all steps green. The first scheduled run failed before the `GOOGLE_API_KEY` secret was added | GitHub Actions run 40386120861 (https://github.com/sravya520/retail-insights-agent/actions/runs/40386120861) |
-| The workflow's eval command run locally | 10 of 10 questions finished, all three gates passed, exit code 0, 27 model calls | Phase 5 section of `docs/results.md`; call count from `evals/runs/nightly-local/meta.json`, local only |
+| The workflow's eval command run locally | 10 of 10 questions finished, all three gates passed, exit code 0, 27 model calls. **The gates check safety, not SQL answer accuracy**: in this same run h14 returned a wrong number (see section 5) and the job still passed | Phase 5 section of `docs/results.md`; call count from `evals/runs/nightly-local/meta.json`, local only |
 | Exit codes (0 pass, 1 gate failed, 2 run stopped early) | Tested: 3 tests pass | `tests/test_nightly_gate.py`, part of `pytest` |
 | Offline test suite | 170 passed | `pytest`, run on 2026-10-27 |
+| Offline test suite, re-check | 170 collected, 169 passed, 0 skipped, **1 failed** | `pytest` on 2026-11-12 in a network-restricted environment (Python 3.12, fresh dependency install). The failure is `tests/test_fixes_v2.py::test_search_multi_on_the_real_index`: the embedding model `BAAI/bge-small-en-v1.5` could not be downloaded (HTTP 403 from the proxy). It was not re-run with network access, so this check does not show a code fault, and it does not replace the 2026-10-27 result |
+| What the nightly gates cover | Gate 1: no unsupported number or citation in a final answer. Gate 2: out-of-scope questions refused. Gate 3: unsafe SQL blocked. None compares the SQL result with gold, so a nightly pass says nothing about SQL accuracy. Adding an accuracy threshold would be a design decision, not made here | `.github/workflows/nightly-eval.yml`, section 7 |
 
 ## 11. Deployment status and links
 
@@ -162,7 +165,7 @@ Combined with the 20 eval v2 questions (40 requests), the cost is $1.713 per 1,0
 
 - The six policy documents are synthetic. The sales data covers December 2009 to December 2011 only.
 - The eval sets are small: 20 held-out and 37 dev questions in v1. A perfect 20 of 20 has a 95% lower bound of 84%. Route groups in the cost report hold 4 to 6 questions.
-- The model is not deterministic. It ignores temperature 0. Held-out question h14 gave the gold answer in two runs and a different answer in a third (section 5).
+- The model is not deterministic. It ignores temperature 0. Held-out question h14 gave the gold answer in two of four saved runs and a different answer (an added `is_merchandise = TRUE` filter) in the other two, including the local run of the nightly command (section 5). The nightly job's gates do not check SQL accuracy, so such a miss does not fail it.
 - **The one wrong pre-computed example.** Of the 20 pre-computed examples in the demo (`data/examples/examples_v1.json`, built by `python scripts/build_examples.py` from run `caching-stable_first`), 15 match the gold answer, 1 does not, and 4 are refusals with no gold check. The wrong one is h14: "What was the total value of returns in 2010, ...". The answer says £245,841.79 because the query added `is_merchandise = TRUE`. The gold answer is £679,179.41. It is kept and labelled as wrong in the UI.
 - The verifier checks numbers and citation ids only, not meaning. It trusts the SQL rows. It ignores numbers written as words.
 - Retrieval misses dev question p10 with every method.

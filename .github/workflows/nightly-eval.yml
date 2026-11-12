@@ -3,6 +3,8 @@ name: nightly-eval
 # Every night: run the offline gate tests, then a 10-question eval subset on the real model.
 # The job fails if a gate fails (no unsupported number or citation in a final answer, every out of scope question
 # refused, the SQL guardrail blocks every unsafe query) or if any test fails.
+# These gates check safety, not SQL answer accuracy: no step compares SQL results with gold answers, so a wrong
+# number (for example on question h14) does not fail the job.
 # Needs the repository secret GOOGLE_API_KEY. No judge calls and no write to docs/results.md.
 
 on:
